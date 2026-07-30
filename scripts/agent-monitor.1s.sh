@@ -133,6 +133,10 @@ for a in agents:
                 line += f' ({h}h{m}m)'
 
         context = inst.get('context_usage')
+        model = inst.get('model')
+        if model:
+            line += f' · {model}'
+
         if context:
             used = format_tokens(context['used_tokens'])
             window = format_tokens(context['window_tokens'])

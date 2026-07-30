@@ -21,6 +21,11 @@ const { getClaudeNativeState, getClaudeRuntimeForPid } = require('./claude-conte
 const { detectLocale, getMessages, getUiStrings } = require('./i18n');
 const { advanceWaitingNotification } = require('./notification-state');
 const {
+  getClaudeModelInLines,
+  getCodexModelInLines,
+  getOpenCodeModel,
+} = require('./model-state');
+const {
   getCodexContextUsageInLines,
   getCodexTaskStateInLines,
   hasPendingToolUseInLines,
@@ -348,6 +353,20 @@ function getCodexContextUsage(sessionFile) {
   }
 }
 
+function getModelFromJsonLines(sessionFile, parser) {
+  try {
+    if (!sessionFile || !fs.existsSync(sessionFile)) return null;
+    const out = execSync(`tail -200 "${sessionFile}" 2>/dev/null`, {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 2000,
+    }).trim();
+    return out ? parser(out.split('\n').filter(Boolean)) : null;
+  } catch {
+    return null;
+  }
+}
+
 function formatLastActivity(ms) {
   if (ms == null) return '';
   const sec = Math.floor(ms / 1000);
@@ -373,6 +392,7 @@ function getInstances(agentDef) {
       pids: [],
       uptime_sec: 0,
       last_activity_ms_ago: null,
+      model: null,
       context_usage: null,
     }];
   }
@@ -431,10 +451,17 @@ function getInstances(agentDef) {
       nativeState
     );
     let contextUsage = null;
+    let model = null;
     if (agentDef.name === 'Codex' && group.sessionFile) {
       contextUsage = getCodexContextUsage(group.sessionFile);
+      model = getModelFromJsonLines(group.sessionFile, getCodexModelInLines);
     } else if (agentDef.name === 'Claude') {
       contextUsage = claudeRuntime?.context_usage || null;
+      model = getModelFromJsonLines(group.sessionFile, getClaudeModelInLines)
+        || claudeRuntime?.model
+        || null;
+    } else if (agentDef.name === 'OpenCode' && group.sessionFile) {
+      model = getOpenCodeModel(group.sessionFile, path.join(agentDef.sessionDir, 'storage'));
     }
     return {
       ...status,
@@ -443,6 +470,7 @@ function getInstances(agentDef) {
       pids: group.pids,
       uptime_sec: pidAge,
       last_activity_ms_ago: group.pids.length > 0 && mtime > 0 ? (now - mtime) : null,
+      model,
       context_usage: contextUsage,
     };
   });

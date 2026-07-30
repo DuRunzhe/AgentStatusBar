@@ -34,6 +34,12 @@ function getContextUsage(contextWindow) {
   };
 }
 
+function getStatusLineModel(model) {
+  if (typeof model === 'string') return model || null;
+  if (!model || typeof model !== 'object') return null;
+  return model.display_name || model.id || null;
+}
+
 function parseClaudeStatusLinePayload(payload, capturedAt = Date.now()) {
   if (!payload || typeof payload !== 'object' || !isSafeSessionId(payload.session_id)) {
     return null;
@@ -44,6 +50,7 @@ function parseClaudeStatusLinePayload(payload, capturedAt = Date.now()) {
     transcript_path: typeof payload.transcript_path === 'string' ? payload.transcript_path : null,
     cwd: typeof payload.cwd === 'string' ? payload.cwd : null,
     captured_at: capturedAt,
+    model: getStatusLineModel(payload.model),
     context_usage: getContextUsage(payload.context_window),
   };
 }
@@ -97,6 +104,7 @@ function getClaudeRuntimeForPid(
     ...session,
     cwd: snapshot?.cwd || session.cwd,
     transcript_path: snapshot?.transcript_path || null,
+    model: snapshot?.model || null,
     context_usage: snapshot?.context_usage || null,
   };
 }

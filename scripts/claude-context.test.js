@@ -17,6 +17,7 @@ test('parses native Claude status line context usage', () => {
     session_id: 'b6597fbf-6258-444f-b066-a9b1aa7c9441',
     transcript_path: '/tmp/session.jsonl',
     cwd: '/tmp/project',
+    model: { id: 'claude-sonnet-4', display_name: 'Claude Sonnet 4' },
     context_window: {
       total_input_tokens: 125855,
       context_window_size: 200000,
@@ -27,6 +28,7 @@ test('parses native Claude status line context usage', () => {
     transcript_path: '/tmp/session.jsonl',
     cwd: '/tmp/project',
     captured_at: 1234,
+    model: 'Claude Sonnet 4',
     context_usage: {
       used_tokens: 125855,
       window_tokens: 200000,
@@ -42,6 +44,7 @@ test('keeps session metadata when Claude has no context usage yet', () => {
     context_window: { used_percentage: null },
   });
   assert.equal(snapshot.context_usage, null);
+  assert.equal(snapshot.model, null);
 });
 
 test('matches a Claude PID to its captured session snapshot', t => {
@@ -63,6 +66,7 @@ test('matches a Claude PID to its captured session snapshot', t => {
     session_id: 'session-42',
     transcript_path: '/transcripts/session-42.jsonl',
     cwd: '/projects/example',
+    model: 'claude-sonnet-4',
     context_usage: { used_tokens: 80000, window_tokens: 200000, percent: 40 },
   }));
 
@@ -72,6 +76,7 @@ test('matches a Claude PID to its captured session snapshot', t => {
     status: 'idle',
     waiting_for: null,
     transcript_path: '/transcripts/session-42.jsonl',
+    model: 'claude-sonnet-4',
     context_usage: { used_tokens: 80000, window_tokens: 200000, percent: 40 },
   });
 });

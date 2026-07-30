@@ -27,6 +27,7 @@ macOS 菜单栏里的 AI Coding Agent 状态监控器。通过 SwiftBar 汇总 C
 | 四态显示 | 进行中、就绪、等待确认、已停止 |
 | 多语言 | 按 macOS 首选语言显示英语、简体中文或繁体中文；语言优先于地区，默认英语 |
 | 上下文占用 | Claude Code 和 Codex 显示百分比及 `已用/窗口` token 数 |
+| 会话模型 | 在 Agent 实例行显示当前会话最新使用的模型名称 |
 | 工具调用配对 | 按 tool ID 配对 `tool_use` 与 `tool_result`，避免并行调用和扫描窗口截断误判 |
 | 进程时长 | 显示 Agent 进程持续运行时间 |
 | 会话跳转 | Terminal.app / iTerm2 精确切换标签页，其他受支持终端降级为激活应用 |
@@ -147,9 +148,9 @@ SwiftBar 每秒刷新一次菜单，守护进程每 2 秒更新一次 `/tmp/agen
 
 ## 数据来源
 
-- **Claude Code**：`~/.claude/sessions/<PID>.json` 提供 PID/session/cwd 配对及原生 `busy` / `idle` / `waiting` 状态；Claude statusline 提供会话路径、上下文窗口和使用率。
-- **Codex CLI**：读取 `~/.codex/sessions/**/rollout-*.jsonl`，只选择主会话 rollout，并使用最近一次有效 `last_token_usage`。
-- **OpenCode**：检测 `opencode` 进程及 `~/.local/share/opencode/**/storage/*`。
+- **Claude Code**：`~/.claude/sessions/<PID>.json` 提供 PID/session/cwd 配对及原生 `busy` / `idle` / `waiting` 状态；Claude statusline 和 transcript 提供模型、会话路径、上下文窗口及使用率。
+- **Codex CLI**：读取 `~/.codex/sessions/**/rollout-*.jsonl`，只选择主会话 rollout，并使用最新模型和最近一次有效 `last_token_usage`。
+- **OpenCode**：检测 `opencode` 进程及 `~/.local/share/opencode/**/storage/*`，从当前会话的最新消息读取 provider/model。
 
 ## 状态判定
 
