@@ -17,6 +17,12 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+const { getCodexTaskStateInLines, hasPendingToolUseInLines } = require('./tool-state');
+const {
+  isIgnoredChildProcess,
+  isPrimaryCodexSessionHeader,
+  parseElapsedTime,
+} = require('./process-state');
 
 // ============================================================
 // Configuration
@@ -38,8 +44,8 @@ const AGENTS = [
   {
     name: 'Codex',
     process: 'codex',
-    sessionDir: path.join(process.env.HOME, '.codex'),
-    sessionGlob: 'history.jsonl',
+    sessionDir: path.join(process.env.HOME, '.codex', 'sessions'),
+    sessionGlob: '**/rollout-*.jsonl',
   },
   {
     name: 'OpenCode',
@@ -109,8 +115,22 @@ function getSessionFileForPid(pid, agentDef) {
       return files.find(f => f.endsWith('.jsonl') && f.startsWith(transcripts)) || null;
     }
     if (agentDef.name === 'Codex') {
-      const historyFile = path.join(agentDef.sessionDir, 'history.jsonl');
-      return files.find(f => f === historyFile) || null;
+      const rolloutFiles = files.filter(f =>
+        f.endsWith('.jsonl') && f.startsWith(agentDef.sessionDir + path.sep)
+      );
+      const primaryFiles = rolloutFiles.filter(file => {
+        try {
+          const fd = fs.openSync(file, 'r');
+          const buffer = Buffer.alloc(8192);
+          const bytesRead = fs.readSync(fd, buffer, 0, buffer.length, 0);
+          fs.closeSync(fd);
+          return isPrimaryCodexSessionHeader(buffer.toString('utf8', 0, bytesRead));
+        } catch {
+          return false;
+        }
+      });
+      primaryFiles.sort((a, b) => getFileMtime(b) - getFileMtime(a));
+      return primaryFiles[0] || null;
     }
     if (agentDef.name === 'OpenCode') {
       return files.find(f =>
@@ -138,28 +158,29 @@ function getFileMtime(filePath) {
  * 判断实例状态
  *
  * 状态体系：
- *   🔵 working  — 有子进程在跑 → 正在做事（最准确的信号）
- *                  无子进程但 session 近期有写入 → 刚结束任务不久
+ *   🔵 working  — 有实际任务子进程，或 session 最近状态为 task_started
  *   🟢 ready    — 无子进程 + session 已空闲较长时间 → 就绪，可以下达新任务
  *   🟡 waiting  — 无子进程 + session 暂停片刻 → 在等你确认/回复
  *   ⚪ stopped  — 进程已退出
  *
- * 判定策略：子进程检测优先（pgrep -P），辅以 session 文件 mtime 时间窗
+ * 判定策略：实际任务子进程优先，辅以 session 事件和 mtime 时间窗
  *   🟡 waiting  — tool_use pending → 在等你批准工具执行
  *   ⚪ stopped  — 进程已退出
  *
  * 判定策略：
- *   一级: 子进程检测 → 进行中
- *   二级: 读 transcript 最后事件 → tool_use=等待确认, tool_result=就绪
+ *   一级: 实际任务子进程检测 → 进行中（忽略常驻辅助进程）
+ *   二级: 读 transcript/rollout → pending=等待确认, task_started/task_complete=进行中/就绪
  *   三级: mtime 时间窗(仅当文件无法判断时兜底)
  */
-function determineState(pids, lastEventTimeMs, now, sessionFile) {
+function determineState(pids, lastEventTimeMs, now, sessionFile, agentName) {
   const alive = pids && pids.length > 0;
   if (!alive) return { state: 'stopped', label: '已停止', emoji: '⚪' };
 
-  // 一级信号：是否有子进程（agent 做事时必定 spawn 子进程）
+  // 一级信号：是否有实际任务子进程（忽略 agent 自身的常驻辅助进程）
   for (const pid of pids) {
-    if (hasChildProcesses(pid)) return { state: 'working', label: '进行中', emoji: '🔵' };
+    if (hasActiveChildProcesses(pid, agentName)) {
+      return { state: 'working', label: '进行中', emoji: '🔵' };
+    }
   }
 
   // 二级信号：检查 session 文件最后事件
@@ -167,6 +188,11 @@ function determineState(pids, lastEventTimeMs, now, sessionFile) {
   if (sessionFile) {
     const pending = hasPendingToolUse(sessionFile);
     if (pending === true) return { state: 'waiting', label: '等待确认', emoji: '🟡' };
+    if (agentName === 'Codex') {
+      const taskState = getCodexTaskState(sessionFile);
+      if (taskState === 'working') return { state: 'working', label: '进行中', emoji: '🔵' };
+      if (taskState === 'ready') return { state: 'ready', label: '就绪', emoji: '🟢' };
+    }
     if (pending === false) return { state: 'ready', label: '就绪', emoji: '🟢' };
   }
 
@@ -184,11 +210,7 @@ function getPidAge(pid) {
       stdio: ['pipe', 'pipe', 'pipe'],
     }).trim();
     if (!out) return 0;
-    const parts = out.split('-');
-    let days = 0, timeStr = parts[0];
-    if (parts.length > 1) { days = parseInt(parts[0]); timeStr = parts[1]; }
-    const [h, m, s] = timeStr.split(':').map(Number);
-    return days * 86400 + (h || 0) * 3600 + (m || 0) * 60 + (s || 0);
+    return parseElapsedTime(out);
   } catch {
     return 0;
   }
@@ -204,16 +226,30 @@ function formatUptime(sec) {
 }
 
 /**
- * 检查 PID 是否有活跃子进程（agent 做事时必定有）
+ * 检查 PID 是否有实际任务子进程
  */
-function hasChildProcesses(pid) {
+function hasActiveChildProcesses(pid, agentName) {
   try {
     const out = execSync(`pgrep -P ${pid} 2>/dev/null`, {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
       timeout: 2000,
     }).trim();
-    return out.length > 0;
+    if (!out) return false;
+
+    const childPids = out.split('\n').filter(childPid => /^\d+$/.test(childPid));
+    return childPids.some(childPid => {
+      try {
+        const command = execSync(`ps -o comm= -p ${childPid} 2>/dev/null`, {
+          encoding: 'utf-8',
+          stdio: ['pipe', 'pipe', 'pipe'],
+          timeout: 2000,
+        }).trim();
+        return command && !isIgnoredChildProcess(agentName, command);
+      } catch {
+        return false;
+      }
+    });
   } catch {
     return false;
   }
@@ -236,9 +272,9 @@ function getProcessCwd(pid) {
 }
 
 /**
- * 扫描 session 文件最近 N 行，用 pending 计数判断是否有未确认的 tool_use
+ * 扫描 session 文件最近 N 行，按 tool ID 配对判断是否有未确认的 tool_use
  * Claude 工作流: 用户发消息 → 写入 tool_use(请求工具) → 问用户确认 → 用户批准 → 写入 tool_result
- * pending = tool_use数 - tool_result数 > 0 → 有工具请求在等你批准
+ * pending = 存在没有对应 tool_result 的 tool_use → 有工具请求在等你批准
  */
 function hasPendingToolUse(sessionFile) {
   try {
@@ -252,14 +288,21 @@ function hasPendingToolUse(sessionFile) {
     if (!out) return null;
 
     const lines = out.split('\n').filter(Boolean);
-    let pending = 0;
-    // 反向扫描: tool_use→递增, tool_result→递减
-    for (let i = lines.length - 1; i >= 0; i--) {
-      const ev = JSON.parse(lines[i]);
-      if (ev.type === 'tool_use') pending++;
-      if (ev.type === 'tool_result') pending = Math.max(0, pending - 1);
-    }
-    return pending > 0;
+    return hasPendingToolUseInLines(lines);
+  } catch {
+    return null;
+  }
+}
+
+function getCodexTaskState(sessionFile) {
+  try {
+    const out = execSync(`tail -200 "${sessionFile}" 2>/dev/null`, {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 2000,
+    }).trim();
+    if (!out) return null;
+    return getCodexTaskStateInLines(out.split('\n').filter(Boolean));
   } catch {
     return null;
   }
@@ -282,7 +325,7 @@ function getInstances(agentDef) {
 
   // 无进程 → ⚪ 已停止
   if (!pids || pids.length === 0) {
-    const status = determineState(null, 0, now, null);
+    const status = determineState(null, 0, now, null, agentDef.name);
     return [{
       ...status,
       label: agentDef.name,
@@ -334,7 +377,7 @@ function getInstances(agentDef) {
       projectLabel = `${agentDef.name} #${idx}`;
     }
 
-    const status = determineState(group.pids, mtime, now, group.sessionFile);
+    const status = determineState(group.pids, mtime, now, group.sessionFile, agentDef.name);
     return {
       ...status,
       label: projectLabel,

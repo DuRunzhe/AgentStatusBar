@@ -170,10 +170,11 @@ launchctl load ~/Library/LaunchAgents/openclaw.agent-monitor.plist
 **数据流：** 守护进程 Node.js → 写 JSON → SwiftBar Shell 脚本 → 渲染到菜单栏
 
 **状态判定策略：**
-1. 进程存在 = 首要信号 → 🟢 运行中
-2. 进程存在 + session 文件近期有写入 → 🟢 **进行中**
-3. 进程存在 + session 文件 >30s 无更新 → 🟡 **等待确认**
-4. 进程不存在 → ⚪ **已停止**
+1. 进程不存在 → ⚪ **已停止**
+2. 存在实际任务子进程（排除常驻辅助进程）→ 🔵 **进行中**
+3. session/rollout 存在未完成的 tool call → 🟡 **等待确认**
+4. Codex rollout 最近事件为 `task_started` / `task_complete` → 🔵 **进行中** / 🟢 **就绪**
+5. 无法读取事件时，使用 session 文件更新时间兜底
 
 ---
 
