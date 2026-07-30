@@ -39,7 +39,24 @@ DATA=$(cat "$STATUS_FILE")
 
 # Summary line — shows in menu bar
 SUMMARY=$(echo "$DATA" | python3 -c "import sys,json; print(json.load(sys.stdin)['summary'])" 2>/dev/null)
-echo "$SUMMARY"
+case "$SUMMARY" in
+  "🔵 "*)
+    SUMMARY_TEXT="${SUMMARY#🔵 }"
+    FRAME=$(($(date +%s) % 4))
+    if [ "$FRAME" -eq 0 ] || [ "$FRAME" -eq 3 ]; then
+      WORKING_BLUE="#69AFFF"
+    else
+      WORKING_BLUE="#1677FF"
+    fi
+    echo "$SUMMARY_TEXT | sfimage=circle.fill sfcolor=$WORKING_BLUE"
+    ;;
+  "⚪ "*)
+    echo "${SUMMARY#⚪ } | sfimage=circle.fill sfcolor=#8E8E93 color=#8E8E93"
+    ;;
+  *)
+    echo "$SUMMARY"
+    ;;
+esac
 
 # --- Dropdown menu ---
 echo "---"
@@ -56,7 +73,7 @@ for a in agents:
     instances = a.get('instances', [])
 
     if not instances:
-        print(f'⚪ {name}: 已停止')
+        print(f'{name}: 已停止 | sfimage=circle.fill sfcolor=#8E8E93 color=#8E8E93')
         continue
 
     for inst in instances:
@@ -66,7 +83,10 @@ for a in agents:
         pids = inst.get('pids', [])
         label_text = inst.get('status_label', '未知')
 
-        line = f'{emoji} {label}: {label_text}'
+        if state == 'stopped':
+            line = f'{label}: {label_text}'
+        else:
+            line = f'{emoji} {label}: {label_text}'
 
         # Append uptime
         uptime = inst.get('uptime_sec', 0)
@@ -88,6 +108,9 @@ for a in agents:
                 line += f' 最后活动 {sec}s 前'
             else:
                 line += f' 最后活动 {sec//60}m 前'
+
+        if state == 'stopped':
+            line += ' | sfimage=circle.fill sfcolor=#8E8E93 color=#8E8E93'
 
         print(line)
 " 2>/dev/null
