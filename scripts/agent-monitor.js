@@ -4,6 +4,7 @@
  *
  * 检测 Claude Code / Codex CLI / OpenCode 的运行状态，
  * 写入 /tmp/agent-status.json 供 SwiftBar 插件显示。
+ * 进入 🟡 等待确认 状态时自动发送 macOS 原生通知。
  *
  * 状态定义：
  *   🟢 running       — 进程存活，session 文件近期有活动
@@ -24,6 +25,7 @@ const POLL_MS = 2000;        // 轮询间隔
 const WAIT_THRESHOLD_MS = 30000;   // 30s 无活动 → waiting
 const STALE_THRESHOLD_MS = 120000; // 120s 无活动 → stale
 const NO_FILE_TIMEOUT_MS = 5000;   // 5s 内找不到 session 文件也不再重试
+const NOTIFICATION_COOLDOWN_MS = 3000; // 同一 agent 通知冷却时间（3 秒）
 
 // Agent definitions
 const AGENTS = [
@@ -57,8 +59,31 @@ const AGENTS = [
 ];
 
 // ============================================================
+// 状态追踪（用于状态变更检测）
+// ============================================================
+
+/** @type {Object<string, { previousState: string, notifiedAt: number|null }>} */
+const AGENT_TRACKER = {};
+
+// ============================================================
 // Helpers
 // ============================================================
+
+/**
+ * 发送 macOS 原生通知
+ * @param {string} agentName
+ * @param {string} agentLabel
+ */
+function sendNotification(agentName, agentLabel) {
+  const msg = `${agentName} 已进入 🟡 等待确认（${agentLabel || '等待用户输入'}）`;
+  try {
+    const escaped = msg.replace(/"/g, '\\"');
+    execSync(
+      `osascript -e 'display notification "${escaped}" with title "Agent Monitor" subtitle "${agentName} 等待确认"'`,
+      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 3000 }
+    );
+  } catch { /* silent */ }
+}
 
 function findProcess(name) {
   try {
@@ -223,6 +248,24 @@ function poll() {
     ),
     agents,
   };
+
+  // │ 通知检测：等待确认 → 发送通知 │
+  // └────────────────────────────────┘
+  for (const agent of agents) {
+    const tracker = AGENT_TRACKER[agent.name] || { previousState: 'stopped', notifiedAt: null };
+
+    if (agent.state === 'waiting' && tracker.previousState !== 'waiting') {
+      // 状态变更为 waiting，检查冷却时间
+      const now = Date.now();
+      if (!tracker.notifiedAt || (now - tracker.notifiedAt) > NOTIFICATION_COOLDOWN_MS) {
+        sendNotification(agent.name, agent.label);
+        tracker.notifiedAt = now;
+      }
+    }
+
+    tracker.previousState = agent.state;
+    AGENT_TRACKER[agent.name] = tracker;
+  }
 
   fs.writeFileSync(STATUS_FILE, JSON.stringify(output, null, 2));
 }
