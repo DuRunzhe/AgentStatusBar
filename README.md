@@ -12,9 +12,9 @@ macOS 菜单栏里的 AI Coding Agent 状态监控器。通过 SwiftBar 汇总 C
 └── [灰色圆点] OpenCode: 已停止
 ```
 
-- 🔵 **进行中**：正在处理任务；顶部蓝色圆点以中圆/大圆每秒交替，形成心跳提示。
+- 🔵 **进行中**：正在处理任务；顶部蓝色圆点每 2 秒切换中圆/大圆，以 4 秒一轮形成舒缓的心跳提示。
 - 🟢 **就绪**：进程存活，当前没有未完成任务。
-- 🟡 **等待确认**：存在尚未返回结果的工具调用；顶部黄色圆点以两档亮度呼吸，并发送分级通知。
+- 🟡 **等待确认**：存在尚未返回结果的工具调用；顶部黄色圆点每秒切换亮度，以 2 秒一轮的呼吸增强紧急提示，并发送分级通知。
 - 灰色圆点 **已停止**：进程不存在。
 
 点击菜单栏图标展开详情。点击存活的 Agent 行可跳转到对应终端会话；已停止项不可点击。
@@ -147,7 +147,7 @@ SwiftBar 每秒刷新一次菜单，守护进程每 2 秒更新一次 `/tmp/agen
 
 ## 数据来源
 
-- **Claude Code**：`~/.claude/sessions/<PID>.json` 提供 PID/session/cwd 配对；Claude statusline 提供会话路径、上下文窗口和使用率。
+- **Claude Code**：`~/.claude/sessions/<PID>.json` 提供 PID/session/cwd 配对及原生 `busy` / `idle` / `waiting` 状态；Claude statusline 提供会话路径、上下文窗口和使用率。
 - **Codex CLI**：读取 `~/.codex/sessions/**/rollout-*.jsonl`，只选择主会话 rollout，并使用最近一次有效 `last_token_usage`。
 - **OpenCode**：检测 `opencode` 进程及 `~/.local/share/opencode/**/storage/*`。
 
@@ -156,10 +156,11 @@ SwiftBar 每秒刷新一次菜单，守护进程每 2 秒更新一次 `/tmp/agen
 判定顺序如下：
 
 1. 进程不存在：**已停止**。
-2. 存在实际任务子进程：**进行中**（忽略 Codex 常驻的 `codex-code-mode-host`）。
-3. 最近扫描窗口中存在没有同 ID 结果的工具调用：**等待确认**。
-4. Codex 最近生命周期事件为 `task_started` / `task_complete`：**进行中** / **就绪**。
-5. 会话事件无法判断时，使用文件更新时间兜底。
+2. Claude 原生状态为 `busy` / `idle` / `waiting`：分别判定为**进行中** / **就绪** / **等待确认**。
+3. 原生状态不可用时，存在实际任务子进程：**进行中**（忽略 Codex 常驻的 `codex-code-mode-host`）。
+4. 最近扫描窗口中存在没有同 ID 结果的工具调用：**等待确认**。
+5. Codex 最近生命周期事件为 `task_started` / `task_complete`：**进行中** / **就绪**。
+6. 会话事件无法判断时，使用文件更新时间兜底。
 
 工具调用不是简单反向计数，而是按 tool ID 独立配对；窗口内只有结果、对应调用位于窗口外时，不会产生 pending。
 
