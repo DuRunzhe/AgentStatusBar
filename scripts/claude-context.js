@@ -66,7 +66,16 @@ function getClaudeSessionInfo(pid, homeDir = process.env.HOME) {
     session_id: session.sessionId,
     cwd: typeof session.cwd === 'string' ? session.cwd : null,
     status: typeof session.status === 'string' ? session.status : null,
+    waiting_for: typeof session.waitingFor === 'string' ? session.waitingFor : null,
   };
+}
+
+function getClaudeNativeState(runtime) {
+  const status = runtime?.status?.toLowerCase();
+  if (status === 'waiting') return 'waiting';
+  if (status === 'busy' || status === 'working' || status === 'running') return 'working';
+  if (status === 'idle' || status === 'ready') return 'ready';
+  return null;
 }
 
 function getClaudeContextSnapshot(sessionId, contextDir = DEFAULT_CONTEXT_DIR) {
@@ -95,6 +104,7 @@ function getClaudeRuntimeForPid(
 module.exports = {
   DEFAULT_CONTEXT_DIR,
   getClaudeContextSnapshot,
+  getClaudeNativeState,
   getClaudeRuntimeForPid,
   getClaudeSessionInfo,
   parseClaudeStatusLinePayload,

@@ -17,7 +17,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync, execSync } = require('child_process');
-const { getClaudeRuntimeForPid } = require('./claude-context');
+const { getClaudeNativeState, getClaudeRuntimeForPid } = require('./claude-context');
 const { detectLocale, getMessages, getUiStrings } = require('./i18n');
 const { advanceWaitingNotification } = require('./notification-state');
 const {
@@ -187,15 +187,26 @@ function getFileMtime(filePath) {
  *   二级: 读 transcript/rollout → pending=等待确认, task_started/task_complete=进行中/就绪
  *   三级: mtime 时间窗(仅当文件无法判断时兜底)
  */
-function determineState(pids, lastEventTimeMs, now, sessionFile, agentName) {
+function determineState(pids, lastEventTimeMs, now, sessionFile, agentName, nativeState = null) {
   const alive = pids && pids.length > 0;
   if (!alive) return { state: 'stopped', label: TEXT.status.stopped, emoji: '⚪' };
+
+  if (nativeState === 'waiting') {
+    return { state: 'waiting', label: TEXT.status.waiting, emoji: '🟡' };
+  }
+  if (nativeState === 'working') {
+    return { state: 'working', label: TEXT.status.working, emoji: '🔵' };
+  }
 
   // 一级信号：是否有实际任务子进程（忽略 agent 自身的常驻辅助进程）
   for (const pid of pids) {
     if (hasActiveChildProcesses(pid, agentName)) {
       return { state: 'working', label: TEXT.status.working, emoji: '🔵' };
     }
+  }
+
+  if (nativeState === 'ready') {
+    return { state: 'ready', label: TEXT.status.ready, emoji: '🟢' };
   }
 
   // 二级信号：检查 session 文件最后事件
@@ -410,7 +421,15 @@ function getInstances(agentDef) {
       projectLabel = `${agentDef.name} #${idx}`;
     }
 
-    const status = determineState(group.pids, mtime, now, group.sessionFile, agentDef.name);
+    const nativeState = agentDef.name === 'Claude' ? getClaudeNativeState(claudeRuntime) : null;
+    const status = determineState(
+      group.pids,
+      mtime,
+      now,
+      group.sessionFile,
+      agentDef.name,
+      nativeState
+    );
     let contextUsage = null;
     if (agentDef.name === 'Codex' && group.sessionFile) {
       contextUsage = getCodexContextUsage(group.sessionFile);

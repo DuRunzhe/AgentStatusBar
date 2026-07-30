@@ -6,6 +6,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const {
+  getClaudeNativeState,
   getClaudeRuntimeForPid,
   parseClaudeStatusLinePayload,
 } = require('./claude-context');
@@ -56,6 +57,7 @@ test('matches a Claude PID to its captured session snapshot', t => {
     sessionId: 'session-42',
     cwd: '/projects/example',
     status: 'idle',
+    waitingFor: null,
   }));
   fs.writeFileSync(path.join(contextDir, 'session-42.json'), JSON.stringify({
     session_id: 'session-42',
@@ -68,9 +70,18 @@ test('matches a Claude PID to its captured session snapshot', t => {
     session_id: 'session-42',
     cwd: '/projects/example',
     status: 'idle',
+    waiting_for: null,
     transcript_path: '/transcripts/session-42.jsonl',
     context_usage: { used_tokens: 80000, window_tokens: 200000, percent: 40 },
   });
+});
+
+test('maps Claude native session status before transcript inference', () => {
+  assert.equal(getClaudeNativeState({ status: 'waiting', waiting_for: 'permission prompt' }), 'waiting');
+  assert.equal(getClaudeNativeState({ status: 'busy' }), 'working');
+  assert.equal(getClaudeNativeState({ status: 'idle' }), 'ready');
+  assert.equal(getClaudeNativeState({ status: 'future-status' }), null);
+  assert.equal(getClaudeNativeState(null), null);
 });
 
 test('installer preserves an existing Claude status line across repeated installs', t => {
