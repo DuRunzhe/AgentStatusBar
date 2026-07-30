@@ -17,6 +17,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+const { getClaudeRuntimeForPid } = require('./claude-context');
 const {
   getCodexContextUsageInLines,
   getCodexTaskStateInLines,
@@ -104,6 +105,10 @@ function findProcess(name) {
  * 返回 null 表示无法确定。
  */
 function getSessionFileForPid(pid, agentDef) {
+  if (agentDef.name === 'Claude') {
+    return getClaudeRuntimeForPid(pid)?.transcript_path || null;
+  }
+
   try {
     const out = execSync(`lsof -Fn -p ${pid} 2>/dev/null`, {
       encoding: 'utf-8',
@@ -114,10 +119,6 @@ function getSessionFileForPid(pid, agentDef) {
       .filter(l => l.startsWith('n'))
       .map(l => l.slice(1));
 
-    if (agentDef.name === 'Claude') {
-      const transcripts = path.join(process.env.HOME, '.claude', 'transcripts');
-      return files.find(f => f.endsWith('.jsonl') && f.startsWith(transcripts)) || null;
-    }
     if (agentDef.name === 'Codex') {
       const rolloutFiles = files.filter(f =>
         f.endsWith('.jsonl') && f.startsWith(agentDef.sessionDir + path.sep)
@@ -388,7 +389,10 @@ function getInstances(agentDef) {
     // 提取项目名：从第一个 PID 的 CWD 取最后一段路径
     let projectLabel = agentDef.name;
     const firstPid = group.pids[0];
-    const cwd = firstPid ? getProcessCwd(firstPid) : null;
+    const claudeRuntime = agentDef.name === 'Claude' && firstPid
+      ? getClaudeRuntimeForPid(firstPid)
+      : null;
+    const cwd = claudeRuntime?.cwd || (firstPid ? getProcessCwd(firstPid) : null);
     if (cwd && keys.length > 1) {
       const projectName = path.basename(cwd);
       projectLabel = `${agentDef.name} (${projectName})`;
@@ -397,9 +401,12 @@ function getInstances(agentDef) {
     }
 
     const status = determineState(group.pids, mtime, now, group.sessionFile, agentDef.name);
-    const contextUsage = agentDef.name === 'Codex' && group.sessionFile
-      ? getCodexContextUsage(group.sessionFile)
-      : null;
+    let contextUsage = null;
+    if (agentDef.name === 'Codex' && group.sessionFile) {
+      contextUsage = getCodexContextUsage(group.sessionFile);
+    } else if (agentDef.name === 'Claude') {
+      contextUsage = claudeRuntime?.context_usage || null;
+    }
     return {
       ...status,
       label: projectLabel,

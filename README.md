@@ -55,6 +55,12 @@ ln -sf ~/mycode/agent-monitor/scripts/agent-monitor.1s.sh \
 
 ### 3. 启动守护进程
 
+先启用 Claude Code 上下文采集。安装器会保留现有 Claude statusline 命令及其输出：
+
+```bash
+node scripts/install-claude-statusline.js
+```
+
 方式一：手动启动（测试用）
 
 ```bash
@@ -118,7 +124,7 @@ launchctl load ~/Library/LaunchAgents/openclaw.agent-monitor.plist
 
 监控的 Agent 包括：
 
-- **Claude Code** — 检测 `claude` 进程 + `~/.claude/transcripts/*.jsonl` 文件活动
+- **Claude Code** — 通过 session 注册表配对进程，并从 statusline 获取原生上下文窗口数据
 - **Codex CLI** — 检测 `codex` 进程 + `~/.codex/history.jsonl` 文件活动
 - **OpenCode** — 检测 `opencode` 进程 + `~/.local/share/opencode/**/storage/*` 文件活动
 
@@ -133,7 +139,7 @@ launchctl load ~/Library/LaunchAgents/openclaw.agent-monitor.plist
 | **进程存活检测** | 通过 `pgrep` 实时检测 Claude Code / Codex CLI / OpenCode 进程 |
 | **活动状态判断** | 结合进程存活 + session 文件更新时间，区分运行/等待/停止 |
 | **运行时长统计** | 显示每个 agent 的进程已运行时间 |
-| **上下文使用率** | Codex 会话显示最近一次模型响应的上下文 token 占用 |
+| **上下文使用率** | Claude Code / Codex 会话显示当前上下文 token 占用 |
 | **四态显示** | 🔵 进行中 / 🟢 就绪 / 🟡 等待确认 / 灰色已停止 |
 | **菜单栏汇总** | 菜单栏显示汇总状态（如 `🟢 2个运行 · 1个等待`） |
 | **下拉菜单详情** | 点击图标展示每个 agent 的详细状态 |
@@ -156,7 +162,7 @@ launchctl load ~/Library/LaunchAgents/openclaw.agent-monitor.plist
 ```
 ┌─────────────────────────┐
 │  agent-monitor.js       │  ← Node.js 守护进程（launchd 管理）
-│  (pgrep + fs.stat)      │
+│  (pgrep + session data) │
 │  每 2s 轮询一次         │
 └──────────┬──────────────┘
            │ 写入 /tmp/agent-status.json
@@ -168,7 +174,7 @@ launchctl load ~/Library/LaunchAgents/openclaw.agent-monitor.plist
 └─────────────────────────┘
 ```
 
-**数据流：** 守护进程 Node.js → 写 JSON → SwiftBar Shell 脚本 → 渲染到菜单栏
+**数据流：** Claude statusline / Codex rollout → 守护进程 Node.js → JSON → SwiftBar → 菜单栏
 
 **状态判定策略：**
 1. 进程不存在 → 灰色圆点 **已停止**
@@ -176,6 +182,8 @@ launchctl load ~/Library/LaunchAgents/openclaw.agent-monitor.plist
 3. session/rollout 存在未完成的 tool call → 🟡 **等待确认**
 4. Codex rollout 最近事件为 `task_started` / `task_complete` → 🔵 **进行中** / 🟢 **就绪**
 5. 无法读取事件时，使用 session 文件更新时间兜底
+
+Claude Code 的 PID 与会话通过 `~/.claude/sessions/<PID>.json` 配对。statusline 采集器将 Claude Code 原生提供的上下文窗口大小和使用率写入 `/tmp/agent-statusbar-claude-context/`，不依赖模型名称硬编码。
 
 ---
 
@@ -205,6 +213,9 @@ node scripts/agent-monitor.js
 
 # 单独测试 SwiftBar 插件输出
 bash scripts/agent-monitor.1s.sh
+
+# 运行全部测试
+node --test scripts/*.test.js
 ```
 
 项目纯脚本实现，无 npm 依赖，零编译。
