@@ -211,7 +211,7 @@ function hasChildProcesses(pid) {
  */
 function getProcessCwd(pid) {
   try {
-    const out = execSync(`lsof -d cwd -Fn -p ${pid} 2>/dev/null`, {
+    const out = execSync(`lsof -a -p ${pid} -d cwd -Fn 2>/dev/null`, {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
       timeout: 3000,
@@ -239,9 +239,11 @@ function getInstances(agentDef) {
 
   // 无进程 → ⚪ 已停止
   if (!pids || pids.length === 0) {
+    const status = determineState(null, 0, now);
     return [{
-      ...determineState(null, 0, now),
+      ...status,
       label: agentDef.name,
+      status_label: status.label,
       pids: [],
       uptime_sec: 0,
       last_activity_ms_ago: null,
@@ -289,9 +291,11 @@ function getInstances(agentDef) {
       projectLabel = `${agentDef.name} #${idx}`;
     }
 
+    const status = determineState(group.pids, mtime, now);
     return {
-      ...determineState(group.pids, mtime, now),
+      ...status,
       label: projectLabel,
+      status_label: status.label,
       pids: group.pids,
       uptime_sec: pidAge,
       last_activity_ms_ago: group.pids.length > 0 && mtime > 0 ? (now - mtime) : null,
@@ -322,9 +326,9 @@ function poll() {
   let summaryEmoji = '⚪', summaryLabel = '无活动';
   if (allWorking.length > 0 || allReady.length > 0 || allWaiting.length > 0) {
     const parts = [];
-    if (allWorking.length > 0) parts.push(`🔵${allWorking.length}个进行`);
-    if (allReady.length > 0) parts.push(`🟢${allReady.length}个就绪`);
-    if (allWaiting.length > 0) parts.push(`🟡${allWaiting.length}个等待`);
+    if (allWorking.length > 0) parts.push(`${allWorking.length}个进行`);
+    if (allReady.length > 0) parts.push(`${allReady.length}个就绪`);
+    if (allWaiting.length > 0) parts.push(`${allWaiting.length}个等待`);
     summaryLabel = parts.join(' · ');
     summaryEmoji = allWaiting.length > 0 ? '🟡' : (allWorking.length > 0 ? '🔵' : '🟢');
   }
@@ -333,7 +337,7 @@ function poll() {
   const details = [];
   for (const agent of agents) {
     for (const inst of agent.instances) {
-      let line = `${inst.emoji} ${inst.label}: ${inst.label}`;
+      let line = `${inst.emoji} ${inst.label}: ${inst.status_label}`;
       if (inst.pids.length > 0) {
         line += ` (PID ${inst.pids.join(',')}`;
         const uptime = formatUptime(inst.uptime_sec);

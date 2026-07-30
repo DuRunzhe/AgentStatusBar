@@ -47,7 +47,7 @@ for a in agents:
         label = inst.get('label', name)
         state = inst.get('state', 'stopped')
         pids = inst.get('pids', [])
-        label_text = inst.get('label', '未知')
+        label_text = inst.get('status_label', '未知')
 
         line = f'{emoji} {label}: {label_text}'
 
