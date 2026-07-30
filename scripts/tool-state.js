@@ -83,13 +83,60 @@ function hasPendingToolUseInLines(lines) {
 }
 
 function getCodexTaskStateInLines(lines) {
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const event = JSON.parse(lines[i]);
-    if (event.type !== 'event_msg') continue;
-    if (event.payload?.type === 'task_complete') return 'ready';
-    if (event.payload?.type === 'task_started') return 'working';
+  let state = null;
+  for (const line of lines) {
+    const event = JSON.parse(line);
+    const payloadType = event.payload?.type;
+
+    if (event.type === 'event_msg' && payloadType === 'task_complete') {
+      state = 'ready';
+      continue;
+    }
+    if (event.type === 'event_msg' && payloadType === 'task_started') {
+      state = 'working';
+      continue;
+    }
+
+    const isResponseActivity = event.type === 'response_item' && [
+      'reasoning',
+      'message',
+      'function_call',
+      'function_call_output',
+      'custom_tool_call',
+      'custom_tool_call_output',
+    ].includes(payloadType);
+    const isAgentActivity = event.type === 'event_msg' && [
+      'agent_message',
+      'patch_apply_end',
+    ].includes(payloadType);
+    if (isResponseActivity || isAgentActivity) state = 'working';
   }
-  return null;
+  return state;
+}
+
+function getClaudeTaskStateInLines(lines) {
+  let state = null;
+  for (const line of lines) {
+    const event = JSON.parse(line);
+
+    if (event.type === 'system' && event.subtype === 'turn_duration') {
+      state = 'ready';
+      continue;
+    }
+
+    if (event.type === 'user') {
+      state = 'working';
+      continue;
+    }
+
+    if (event.type !== 'assistant') continue;
+    const content = event.message?.content;
+    const hasFinalText = Array.isArray(content)
+      && content.some(block => block?.type === 'text')
+      && event.message?.stop_reason === 'end_turn';
+    state = hasFinalText ? 'ready' : 'working';
+  }
+  return state;
 }
 
 function getCodexContextUsageInLines(lines) {
@@ -114,6 +161,7 @@ function getCodexContextUsageInLines(lines) {
 }
 
 module.exports = {
+  getClaudeTaskStateInLines,
   getCodexContextUsageInLines,
   getCodexTaskStateInLines,
   getPendingToolUseKindInLines,

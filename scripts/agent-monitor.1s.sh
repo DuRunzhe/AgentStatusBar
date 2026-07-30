@@ -9,6 +9,69 @@
 # <swiftbar.hideSwiftBar>true</swiftbar.hideSwiftBar>
 
 STATUS_FILE="/tmp/agent-status.json"
+LOCALE_FILE="/tmp/agent-statusbar-locale"
+LOCALE_REFRESH_SEC=60
+PROCESS_SNAPSHOT_FILE="/tmp/agent-statusbar-processes"
+PROCESS_SNAPSHOT_LOCK="/tmp/agent-statusbar-processes.lock"
+PROCESS_REFRESH_SEC=5
+
+refresh_locale_cache() {
+  local now mtime language_output apple_locale locale line language temp_file
+  now=$(date +%s)
+  mtime=$(stat -f '%m' "$LOCALE_FILE" 2>/dev/null || echo 0)
+  [ $((now - mtime)) -lt "$LOCALE_REFRESH_SEC" ] && return
+
+  language_output=$(/usr/bin/defaults read -g AppleLanguages 2>/dev/null || true)
+  apple_locale=$(/usr/bin/defaults read -g AppleLocale 2>/dev/null || true)
+  locale=""
+  while IFS= read -r line; do
+    language=$(printf '%s' "$line" | /usr/bin/sed -E 's/^[[:space:],("]+//; s/[[:space:],)"]+$//')
+    case "$language" in
+      zh-Hant*|zh_TW*|zh-HK*|zh_HK*|zh-MO*|zh_MO*) locale="zh-Hant"; break ;;
+      zh|zh-Hans*|zh_CN*|zh-SG*|zh_SG*) locale="zh-Hans"; break ;;
+      en|en-*|en_*) locale="en"; break ;;
+    esac
+  done <<< "$language_output"
+
+  if [ -z "$locale" ]; then
+    case "$apple_locale" in
+      *[_-]TW*|*[_-]HK*|*[_-]MO*) locale="zh-Hant" ;;
+      *[_-]CN*|*[_-]SG*) locale="zh-Hans" ;;
+      *) locale="en" ;;
+    esac
+  fi
+
+  temp_file="${LOCALE_FILE}.$$"
+  printf '%s\n' "$locale" > "$temp_file"
+  /bin/mv -f "$temp_file" "$LOCALE_FILE"
+}
+
+refresh_locale_cache
+
+refresh_process_snapshot() {
+  local now mtime lock_mtime temp_file
+  now=$(date +%s)
+  mtime=$(stat -f '%m' "$PROCESS_SNAPSHOT_FILE" 2>/dev/null || echo 0)
+  [ $((now - mtime)) -lt "$PROCESS_REFRESH_SEC" ] && return
+
+  lock_mtime=$(stat -f '%m' "$PROCESS_SNAPSHOT_LOCK" 2>/dev/null || echo 0)
+  if [ "$lock_mtime" -gt 0 ] && [ $((now - lock_mtime)) -ge 30 ]; then
+    /bin/rmdir "$PROCESS_SNAPSHOT_LOCK" 2>/dev/null || true
+  fi
+  /bin/mkdir "$PROCESS_SNAPSHOT_LOCK" 2>/dev/null || return
+
+  (
+    temp_file="${PROCESS_SNAPSHOT_FILE}.$$"
+    if /bin/ps -axo pid=,ppid=,etime=,comm= > "$temp_file"; then
+      /bin/mv -f "$temp_file" "$PROCESS_SNAPSHOT_FILE"
+    else
+      /bin/rm -f "$temp_file"
+    fi
+    /bin/rmdir "$PROCESS_SNAPSHOT_LOCK" 2>/dev/null || true
+  ) </dev/null >/dev/null 2>&1 &
+}
+
+refresh_process_snapshot
 
 # 动态查找 node 路径，兼容 Intel/Apple Silicon
 NODE_CMD=$(command -v node 2>/dev/null || echo "/usr/local/bin/node")

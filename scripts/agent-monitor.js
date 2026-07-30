@@ -16,19 +16,21 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execFileSync, execSync } = require('child_process');
+const { execFile, execFileSync } = require('child_process');
 const { getClaudeNativeState, getClaudeRuntimeForPid } = require('./claude-context');
-const { detectLocale, getMessages, getUiStrings } = require('./i18n');
+const { DEFAULT_LOCALE, getMessages, getUiStrings } = require('./i18n');
 const { advanceWaitingNotification } = require('./notification-state');
 const { readDisplayConfig } = require('./display-config');
 const { acquireProcessLock } = require('./process-lock');
 const { buildStatusSummary } = require('./status-summary');
+const { resolveAgentState } = require('./state-priority');
 const {
   getClaudeModelInLines,
   getCodexModelInLines,
   getOpenCodeModel,
 } = require('./model-state');
 const {
+  getClaudeTaskStateInLines,
   getCodexContextUsageInLines,
   getCodexTaskStateInLines,
   getPendingToolUseKindInLines,
@@ -36,19 +38,22 @@ const {
 const {
   isIgnoredChildProcess,
   isPrimaryCodexSessionHeader,
-  parseElapsedTime,
+  parseProcessSnapshot,
 } = require('./process-state');
 
 // ============================================================
 // Configuration
 // ============================================================
 const STATUS_FILE = '/tmp/agent-status.json';
+const STATUS_TEMP_FILE = `${STATUS_FILE}.${process.pid}.tmp`;
+const LOCALE_FILE = '/tmp/agent-statusbar-locale';
+const PROCESS_SNAPSHOT_FILE = '/tmp/agent-statusbar-processes';
 const LOCK_FILE = '/tmp/agent-statusbar-monitor.pid';
 const POLL_MS = 2000;               // 轮询间隔
 const WAIT_THRESHOLD_MS = 30000;    // 30s 无活动 → waiting
 const STALE_THRESHOLD_MS = 120000;  // 120s 无活动 → stale
-const LOCALE = detectLocale();
-const TEXT = getMessages(LOCALE);
+let LOCALE = DEFAULT_LOCALE;
+let TEXT = getMessages(LOCALE);
 
 const releaseProcessLock = acquireProcessLock(LOCK_FILE);
 if (!releaseProcessLock) {
@@ -56,6 +61,15 @@ if (!releaseProcessLock) {
   process.exit(0);
 }
 process.on('exit', releaseProcessLock);
+
+function refreshLocale() {
+  try {
+    const locale = fs.readFileSync(LOCALE_FILE, 'utf8').trim();
+    if (!['en', 'zh-Hans', 'zh-Hant'].includes(locale) || locale === LOCALE) return;
+    LOCALE = locale;
+    TEXT = getMessages(locale);
+  } catch {}
+}
 
 // Agent definitions
 const AGENTS = [
@@ -106,26 +120,72 @@ function sendNotification(agentName, instanceLabel, reminderStage, state) {
   const msg = message(target);
   const subtitle = subtitleText(agentName);
   const script = `display notification "${escapeAppleScript(msg)}" with title "Agent Monitor" subtitle "${escapeAppleScript(subtitle)}" sound name "default"`;
-  try {
-    execFileSync(
-      '/usr/bin/osascript',
-      ['-e', script],
-      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 3000 }
-    );
-  } catch { /* silent */ }
+  execFile(
+    '/usr/bin/osascript',
+    ['-e', script],
+    { encoding: 'utf-8', timeout: 3000 },
+    () => { /* notification failures must never block monitoring */ }
+  );
 }
 
-function findProcess(name) {
+let lastProcessSnapshot = [];
+const PID_SESSION_CACHE = new Map();
+const PID_CWD_CACHE = new Map();
+const SESSION_ANALYSIS_CACHE = new Map();
+
+function isPidRunning(pid) {
   try {
-    const out = execSync(`pgrep -x "${name}" 2>/dev/null`, {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim();
-    if (!out) return null;
-    return out.split('\n').map(s => parseInt(s));
-  } catch {
-    return null;
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === 'EPERM';
   }
+}
+
+function getClaudeSessionProcesses() {
+  const sessionDir = path.join(process.env.HOME || '', '.claude', 'sessions');
+  try {
+    return fs.readdirSync(sessionDir)
+      .filter(file => file.endsWith('.json'))
+      .map(file => {
+        try {
+          const session = JSON.parse(fs.readFileSync(path.join(sessionDir, file), 'utf8'));
+          return Number.isInteger(session.pid) && isPidRunning(session.pid)
+            ? { pid: session.pid, ppid: 0, elapsed_sec: 0, command: 'claude' }
+            : null;
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function getProcessSnapshot() {
+  try {
+    const stat = fs.statSync(PROCESS_SNAPSHOT_FILE);
+    if (Date.now() - stat.mtimeMs <= 30_000) {
+      lastProcessSnapshot = parseProcessSnapshot(fs.readFileSync(PROCESS_SNAPSHOT_FILE, 'utf8'));
+    }
+  } catch {}
+
+  const merged = new Map();
+  for (const processInfo of lastProcessSnapshot) {
+    if (isPidRunning(processInfo.pid)) merged.set(processInfo.pid, processInfo);
+  }
+  for (const processInfo of getClaudeSessionProcesses()) {
+    if (!merged.has(processInfo.pid)) merged.set(processInfo.pid, processInfo);
+  }
+  return [...merged.values()];
+}
+
+function findProcess(name, processes) {
+  const pids = processes
+    .filter(processInfo => path.basename(processInfo.command) === name)
+    .map(processInfo => processInfo.pid);
+  return pids.length > 0 ? pids : null;
 }
 
 /**
@@ -137,8 +197,12 @@ function getSessionFileForPid(pid, agentDef) {
     return getClaudeRuntimeForPid(pid)?.transcript_path || null;
   }
 
+  const cacheKey = `${agentDef.name}:${pid}`;
+  const cached = PID_SESSION_CACHE.get(cacheKey);
+  if (cached && fs.existsSync(cached)) return cached;
+
   try {
-    const out = execSync(`lsof -Fn -p ${pid} 2>/dev/null`, {
+    const out = execFileSync('/usr/sbin/lsof', ['-Fn', '-p', String(pid)], {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
       timeout: 3000,
@@ -163,13 +227,17 @@ function getSessionFileForPid(pid, agentDef) {
         }
       });
       primaryFiles.sort((a, b) => getFileMtime(b) - getFileMtime(a));
-      return primaryFiles[0] || null;
+      const sessionFile = primaryFiles[0] || null;
+      if (sessionFile) PID_SESSION_CACHE.set(cacheKey, sessionFile);
+      return sessionFile;
     }
     if (agentDef.name === 'OpenCode') {
-      return files.find(f =>
+      const sessionFile = files.find(f =>
         f.includes(path.sep + 'storage' + path.sep) &&
         f.includes(path.sep + 'opencode' + path.sep)
       ) || null;
+      if (sessionFile) PID_SESSION_CACHE.set(cacheKey, sessionFile);
+      return sessionFile;
     }
     return null;
   } catch {
@@ -206,43 +274,40 @@ function getFileMtime(filePath) {
  *   二级: 读 transcript/rollout → pending=等待确认, task_started/task_complete=进行中/就绪
  *   三级: mtime 时间窗(仅当文件无法判断时兜底)
  */
-function determineState(pids, lastEventTimeMs, now, sessionFile, agentName, nativeState = null) {
+function determineState(
+  pids,
+  lastEventTimeMs,
+  now,
+  sessionFile,
+  agentName,
+  nativeState = null,
+  processes = [],
+  sessionAnalysis = null
+) {
   const alive = pids && pids.length > 0;
   if (!alive) return { state: 'stopped', label: TEXT.status.stopped, emoji: '⚪' };
 
-  const pendingKind = sessionFile ? getPendingToolUseKind(sessionFile) : null;
-  if (pendingKind === 'user_input') {
-    return { state: 'waiting_reply', label: TEXT.status.waitingReply, emoji: '🟡' };
+  const pendingKind = sessionAnalysis?.pendingKind ?? null;
+  const transcriptState = sessionAnalysis?.taskState ?? null;
+  const hasActiveChild = pids.some(pid => hasActiveChildProcesses(pid, agentName, processes));
+  const resolved = resolveAgentState({
+    alive,
+    pendingKind,
+    nativeState,
+    hasActiveChild,
+    transcriptState,
+  });
+  if (resolved === 'waiting_reply') {
+    return { state: resolved, label: TEXT.status.waitingReply, emoji: '🟡' };
   }
-
-  if (nativeState === 'waiting') {
-    return { state: 'waiting', label: TEXT.status.waiting, emoji: '🟡' };
+  if (resolved === 'waiting') {
+    return { state: resolved, label: TEXT.status.waiting, emoji: '🟡' };
   }
-  if (nativeState === 'working') {
-    return { state: 'working', label: TEXT.status.working, emoji: '🔵' };
+  if (resolved === 'working') {
+    return { state: resolved, label: TEXT.status.working, emoji: '🔵' };
   }
-
-  // 一级信号：是否有实际任务子进程（忽略 agent 自身的常驻辅助进程）
-  for (const pid of pids) {
-    if (hasActiveChildProcesses(pid, agentName)) {
-      return { state: 'working', label: TEXT.status.working, emoji: '🔵' };
-    }
-  }
-
-  if (nativeState === 'ready') {
-    return { state: 'ready', label: TEXT.status.ready, emoji: '🟢' };
-  }
-
-  // 二级信号：检查 session 文件最后事件
-  // tool_use = agent 请求用工具但未执行 → 等待用户批准
-  if (sessionFile) {
-    if (pendingKind === 'tool') return { state: 'waiting', label: TEXT.status.waiting, emoji: '🟡' };
-    if (agentName === 'Codex') {
-      const taskState = getCodexTaskState(sessionFile);
-      if (taskState === 'working') return { state: 'working', label: TEXT.status.working, emoji: '🔵' };
-      if (taskState === 'ready') return { state: 'ready', label: TEXT.status.ready, emoji: '🟢' };
-    }
-    if (pendingKind === 'none') return { state: 'ready', label: TEXT.status.ready, emoji: '🟢' };
+  if (resolved === 'ready') {
+    return { state: resolved, label: TEXT.status.ready, emoji: '🟢' };
   }
 
   // 三级信号：文件判断无结果 → 用 mtime 兜底
@@ -252,17 +317,8 @@ function determineState(pids, lastEventTimeMs, now, sessionFile, agentName, nati
   return { state: 'ready', label: TEXT.status.ready, emoji: '🟢' };
 }
 
-function getPidAge(pid) {
-  try {
-    const out = execSync(`ps -o etime= -p ${pid} 2>/dev/null`, {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim();
-    if (!out) return 0;
-    return parseElapsedTime(out);
-  } catch {
-    return 0;
-  }
+function getPidAge(pid, processes) {
+  return processes.find(processInfo => processInfo.pid === pid)?.elapsed_sec || 0;
 }
 
 function formatUptime(sec) {
@@ -277,45 +333,34 @@ function formatUptime(sec) {
 /**
  * 检查 PID 是否有实际任务子进程
  */
-function hasActiveChildProcesses(pid, agentName) {
-  try {
-    const out = execSync(`pgrep -P ${pid} 2>/dev/null`, {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 2000,
-    }).trim();
-    if (!out) return false;
-
-    const childPids = out.split('\n').filter(childPid => /^\d+$/.test(childPid));
-    return childPids.some(childPid => {
-      try {
-        const command = execSync(`ps -o comm= -p ${childPid} 2>/dev/null`, {
-          encoding: 'utf-8',
-          stdio: ['pipe', 'pipe', 'pipe'],
-          timeout: 2000,
-        }).trim();
-        return command && !isIgnoredChildProcess(agentName, command);
-      } catch {
-        return false;
-      }
-    });
-  } catch {
-    return false;
-  }
+function hasActiveChildProcesses(pid, agentName, processes) {
+  return processes.some(processInfo =>
+    processInfo.ppid === pid &&
+    !isIgnoredChildProcess(agentName, processInfo.command)
+  );
 }
 
 /**
  * 获取进程的工作目录（项目根路径）
  */
 function getProcessCwd(pid) {
+  if (PID_CWD_CACHE.has(pid)) return PID_CWD_CACHE.get(pid);
   try {
-    const out = execSync(`lsof -a -p ${pid} -d cwd -Fn 2>/dev/null`, {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 3000,
-    });
+    const out = execFileSync(
+      '/usr/sbin/lsof',
+      ['-a', '-p', String(pid), '-d', 'cwd', '-Fn'],
+      {
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: 3000,
+      }
+    );
     const cwdLine = out.split('\n').find(l => l.startsWith('n'));
-    if (cwdLine) return cwdLine.slice(1);
+    if (cwdLine) {
+      const cwd = cwdLine.slice(1);
+      PID_CWD_CACHE.set(pid, cwd);
+      return cwd;
+    }
   } catch {}
   return null;
 }
@@ -325,61 +370,42 @@ function getProcessCwd(pid) {
  * Claude 工作流: 用户发消息 → 写入 tool_use(请求工具) → 问用户确认 → 用户批准 → 写入 tool_result
  * pending = 存在没有对应 tool_result 的 tool_use → 有工具请求在等你批准
  */
-function getPendingToolUseKind(sessionFile) {
+function readLastJsonLines(filePath, count) {
+  const stat = fs.statSync(filePath);
+  const maxBytes = 2 * 1024 * 1024;
+  const bytesToRead = Math.min(stat.size, maxBytes);
+  const buffer = Buffer.alloc(bytesToRead);
+  const descriptor = fs.openSync(filePath, 'r');
   try {
-    if (!sessionFile || !fs.existsSync(sessionFile)) return null;
-    // 读最近 30 行，跳过空行，反向分析事件序列
-    const out = execSync(`tail -30 "${sessionFile}" 2>/dev/null`, {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 2000,
-    }).trim();
-    if (!out) return null;
-
-    const lines = out.split('\n').filter(Boolean);
-    return getPendingToolUseKindInLines(lines);
-  } catch {
-    return null;
+    fs.readSync(descriptor, buffer, 0, bytesToRead, stat.size - bytesToRead);
+  } finally {
+    fs.closeSync(descriptor);
   }
+  let lines = buffer.toString('utf8').split('\n');
+  if (stat.size > bytesToRead) lines = lines.slice(1);
+  return lines.filter(Boolean).slice(-count);
 }
 
-function getCodexTaskState(sessionFile) {
+function analyzeSessionFile(sessionFile, agentName) {
+  if (!sessionFile) return null;
   try {
-    const out = execSync(`tail -200 "${sessionFile}" 2>/dev/null`, {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 2000,
-    }).trim();
-    if (!out) return null;
-    return getCodexTaskStateInLines(out.split('\n').filter(Boolean));
-  } catch {
-    return null;
-  }
-}
+    const stat = fs.statSync(sessionFile);
+    const cached = SESSION_ANALYSIS_CACHE.get(sessionFile);
+    if (cached?.mtimeMs === stat.mtimeMs && cached?.size === stat.size) return cached.analysis;
 
-function getCodexContextUsage(sessionFile) {
-  try {
-    const out = execSync(`tail -200 "${sessionFile}" 2>/dev/null`, {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 2000,
-    }).trim();
-    if (!out) return null;
-    return getCodexContextUsageInLines(out.split('\n').filter(Boolean));
-  } catch {
-    return null;
-  }
-}
-
-function getModelFromJsonLines(sessionFile, parser) {
-  try {
-    if (!sessionFile || !fs.existsSync(sessionFile)) return null;
-    const out = execSync(`tail -200 "${sessionFile}" 2>/dev/null`, {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 2000,
-    }).trim();
-    return out ? parser(out.split('\n').filter(Boolean)) : null;
+    const lines = readLastJsonLines(sessionFile, 200);
+    const analysis = {
+      pendingKind: getPendingToolUseKindInLines(lines.slice(-30)),
+      taskState: agentName === 'Claude'
+        ? getClaudeTaskStateInLines(lines)
+        : (agentName === 'Codex' ? getCodexTaskStateInLines(lines) : null),
+      contextUsage: agentName === 'Codex' ? getCodexContextUsageInLines(lines) : null,
+      model: agentName === 'Claude'
+        ? getClaudeModelInLines(lines)
+        : (agentName === 'Codex' ? getCodexModelInLines(lines) : null),
+    };
+    SESSION_ANALYSIS_CACHE.set(sessionFile, { mtimeMs: stat.mtimeMs, size: stat.size, analysis });
+    return analysis;
   } catch {
     return null;
   }
@@ -396,13 +422,13 @@ function formatLastActivity(ms) {
 // 核心：获取每个 agent 的实例列表
 // ============================================================
 
-function getInstances(agentDef) {
-  const pids = findProcess(agentDef.process);
+function getInstances(agentDef, processes) {
+  const pids = findProcess(agentDef.process, processes);
   const now = Date.now();
 
   // 无进程 → ⚪ 已停止
   if (!pids || pids.length === 0) {
-    const status = determineState(null, 0, now, null, agentDef.name);
+    const status = determineState(null, 0, now, null, agentDef.name, null, processes);
     return [{
       ...status,
       label: agentDef.name,
@@ -444,7 +470,7 @@ function getInstances(agentDef) {
     const group = merged[key];
     idx++;
     const mtime = group.sessionFile ? getFileMtime(group.sessionFile) : 0;
-    const pidAge = Math.min(...group.pids.map(p => getPidAge(p)));
+    const pidAge = Math.min(...group.pids.map(p => getPidAge(p, processes)));
     // 提取项目名：从第一个 PID 的 CWD 取最后一段路径
     let projectLabel = agentDef.name;
     const firstPid = group.pids[0];
@@ -460,22 +486,27 @@ function getInstances(agentDef) {
     }
 
     const nativeState = agentDef.name === 'Claude' ? getClaudeNativeState(claudeRuntime) : null;
+    const sessionAnalysis = agentDef.name === 'Claude' || agentDef.name === 'Codex'
+      ? analyzeSessionFile(group.sessionFile, agentDef.name)
+      : null;
     const status = determineState(
       group.pids,
       mtime,
       now,
       group.sessionFile,
       agentDef.name,
-      nativeState
+      nativeState,
+      processes,
+      sessionAnalysis
     );
     let contextUsage = null;
     let model = null;
     if (agentDef.name === 'Codex' && group.sessionFile) {
-      contextUsage = getCodexContextUsage(group.sessionFile);
-      model = getModelFromJsonLines(group.sessionFile, getCodexModelInLines);
+      contextUsage = sessionAnalysis?.contextUsage || null;
+      model = sessionAnalysis?.model || null;
     } else if (agentDef.name === 'Claude') {
       contextUsage = claudeRuntime?.context_usage || null;
-      model = getModelFromJsonLines(group.sessionFile, getClaudeModelInLines)
+      model = sessionAnalysis?.model
         || claudeRuntime?.model
         || null;
     } else if (agentDef.name === 'OpenCode' && group.sessionFile) {
@@ -499,13 +530,15 @@ function getInstances(agentDef) {
 // ============================================================
 
 function poll() {
+  refreshLocale();
   const now = Date.now();
   const agents = [];
+  const processes = getProcessSnapshot();
 
   for (const agentDef of AGENTS) {
     agents.push({
       name: agentDef.name,
-      instances: getInstances(agentDef),
+      instances: getInstances(agentDef, processes),
     });
   }
 
@@ -544,7 +577,23 @@ function poll() {
     }
   }
 
-  // ── 通知检测（按实例 key） ──
+  // ── 输出 JSON ──
+  const output = {
+    timestamp: new Date().toISOString(),
+    locale: LOCALE,
+    summary: `${summary.emoji} ${summary.label}`,
+    ui: getUiStrings(LOCALE),
+    display_config: readDisplayConfig(),
+    detail: details,
+    agents,
+    multiSession: true,
+  };
+
+  fs.writeFileSync(STATUS_TEMP_FILE, JSON.stringify(output, null, 2));
+  fs.renameSync(STATUS_TEMP_FILE, STATUS_FILE);
+
+  // Notifications may block in macOS services. Persist the fresh state first so
+  // SwiftBar never keeps showing the previous state while a notification runs.
   const currentInstanceKeys = new Set();
   for (const agent of agents) {
     for (const inst of agent.instances) {
@@ -561,19 +610,6 @@ function poll() {
     if (!currentInstanceKeys.has(key)) delete INSTANCE_TRACKER[key];
   }
 
-  // ── 输出 JSON ──
-  const output = {
-    timestamp: new Date().toISOString(),
-    locale: LOCALE,
-    summary: `${summary.emoji} ${summary.label}`,
-    ui: getUiStrings(LOCALE),
-    display_config: readDisplayConfig(),
-    detail: details,
-    agents,
-    multiSession: true,
-  };
-
-  fs.writeFileSync(STATUS_FILE, JSON.stringify(output, null, 2));
 }
 
 // ============================================================
@@ -584,5 +620,13 @@ console.log('agent-monitor started — polling every', POLL_MS / 1000, 's');
 console.log('writing to', STATUS_FILE);
 console.log('multi-session tracking enabled');
 
-poll();
-setInterval(poll, POLL_MS);
+function runPoll() {
+  try {
+    poll();
+  } catch (error) {
+    console.error('poll failed:', error?.stack || error);
+  }
+}
+
+setInterval(runPoll, POLL_MS);
+runPoll();

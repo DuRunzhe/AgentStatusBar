@@ -2,6 +2,19 @@
 
 const path = require('path');
 
+function parseProcessSnapshot(output) {
+  return String(output || '')
+    .split('\n')
+    .map(line => line.match(/^\s*(\d+)\s+(\d+)\s+(\S+)\s+(.+?)\s*$/))
+    .filter(Boolean)
+    .map(match => ({
+      pid: Number.parseInt(match[1], 10),
+      ppid: Number.parseInt(match[2], 10),
+      elapsed_sec: parseElapsedTime(match[3]),
+      command: match[4],
+    }));
+}
+
 function isIgnoredChildProcess(agentName, command) {
   return agentName === 'Codex' && path.basename(command.trim()) === 'codex-code-mode-host';
 }
@@ -34,5 +47,6 @@ function parseElapsedTime(value) {
 module.exports = {
   isIgnoredChildProcess,
   isPrimaryCodexSessionHeader,
+  parseProcessSnapshot,
   parseElapsedTime,
 };

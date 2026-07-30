@@ -3,6 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
+  getClaudeTaskStateInLines,
   getCodexContextUsageInLines,
   getPendingToolUseKindInLines,
   hasPendingToolUseInLines,
@@ -78,6 +79,47 @@ test('uses the latest Codex task lifecycle event', () => {
     { type: 'event_msg', payload: { type: 'task_complete' } },
     { type: 'event_msg', payload: { type: 'task_started' } },
   ])), 'working');
+});
+
+test('treats response activity after an older task_complete as working', () => {
+  const { getCodexTaskStateInLines } = require('./tool-state');
+  assert.equal(getCodexTaskStateInLines(lines([
+    { type: 'event_msg', payload: { type: 'task_complete' } },
+    { type: 'response_item', payload: { type: 'reasoning' } },
+    { type: 'response_item', payload: { type: 'custom_tool_call', name: 'exec', call_id: 'call-1' } },
+    { type: 'response_item', payload: { type: 'custom_tool_call_output', call_id: 'call-1' } },
+  ])), 'working');
+});
+
+test('latest task_complete settles Codex response activity to ready', () => {
+  const { getCodexTaskStateInLines } = require('./tool-state');
+  assert.equal(getCodexTaskStateInLines(lines([
+    { type: 'response_item', payload: { type: 'reasoning' } },
+    { type: 'response_item', payload: { type: 'message', role: 'assistant' } },
+    { type: 'event_msg', payload: { type: 'task_complete' } },
+  ])), 'ready');
+});
+
+test('treats Claude transcript activity after an older turn as working', () => {
+  assert.equal(getClaudeTaskStateInLines(lines([
+    { type: 'system', subtype: 'turn_duration' },
+    { type: 'user', origin: { kind: 'human' }, message: { role: 'user', content: 'continue' } },
+    { type: 'assistant', message: { stop_reason: 'tool_use', content: [{ type: 'thinking' }] } },
+    { type: 'assistant', message: { stop_reason: 'tool_use', content: [{ type: 'tool_use', name: 'Bash', id: 'call-1' }] } },
+    { type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call-1' }] } },
+  ])), 'working');
+});
+
+test('settles Claude final response to ready', () => {
+  assert.equal(getClaudeTaskStateInLines(lines([
+    { type: 'user', message: { role: 'user', content: 'continue' } },
+    { type: 'assistant', message: { stop_reason: 'end_turn', content: [{ type: 'thinking' }] } },
+    { type: 'assistant', message: { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Done.' }] } },
+  ])), 'ready');
+  assert.equal(getClaudeTaskStateInLines(lines([
+    { type: 'assistant', message: { stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'call-1' }] } },
+    { type: 'system', subtype: 'turn_duration' },
+  ])), 'ready');
 });
 
 test('extracts context usage from the latest valid Codex token count', () => {

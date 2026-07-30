@@ -4,6 +4,14 @@ set -uo pipefail
 SCRIPT_DIR="$(cd -P "$(dirname "$0")" && pwd)"
 DAEMON_PATH="$SCRIPT_DIR/agent-monitor.js"
 SERVICE="gui/$(id -u)/openclaw.agent-monitor"
+PROCESS_SNAPSHOT_FILE="/tmp/agent-statusbar-processes"
+
+snapshot_temp="${PROCESS_SNAPSHOT_FILE}.$$"
+if /bin/ps -axo pid=,ppid=,etime=,comm= > "$snapshot_temp"; then
+  /bin/mv -f "$snapshot_temp" "$PROCESS_SNAPSHOT_FILE"
+else
+  /bin/rm -f "$snapshot_temp"
+fi
 
 MANAGED_PID=$(/bin/launchctl print "$SERVICE" 2>/dev/null \
   | /usr/bin/awk '$1 == "pid" && $2 == "=" { print $3; exit }')

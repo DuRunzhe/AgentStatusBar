@@ -164,11 +164,13 @@ SwiftBar 每秒刷新一次菜单，守护进程每 2 秒更新一次 `/tmp/agen
 
 1. 进程不存在：**已停止**。
 2. 存在尚无同 ID 结果的 `request_user_input` 或 `AskUserQuestion`：**等待回复**。
-3. Claude 原生状态为 `busy` / `idle` / `waiting`：分别判定为**进行中** / **就绪** / **等待确认**。
-4. 原生状态不可用时，存在实际任务子进程：**进行中**（忽略 Codex 常驻的 `codex-code-mode-host`）。
+3. Claude 原生状态为 `busy` / `waiting`：分别判定为**进行中** / **等待确认**。
+4. 存在实际任务子进程：**进行中**（忽略 Codex 常驻的 `codex-code-mode-host`）。
 5. 最近扫描窗口中存在没有同 ID 结果的其他工具调用：**等待确认**。
-6. Codex 最近生命周期事件为 `task_started` / `task_complete`：**进行中** / **就绪**。
-7. 会话事件无法判断时，使用文件更新时间兜底。
+6. Claude transcript 中最新回合仍有用户请求、thinking 或工具活动：**进行中**；明确 `end_turn` 后为**就绪**。
+7. Claude 原生状态为 `idle`：只在没有更高优先级 transcript 或工具信号时判定为**就绪**。
+8. Codex 最近生命周期事件为 `task_started` / `task_complete`：**进行中** / **就绪**。
+9. 会话事件无法判断时，使用文件更新时间兜底。
 
 工具调用不是简单反向计数，而是按 tool ID 独立配对；窗口内只有结果、对应调用位于窗口外时，不会产生 pending。
 
