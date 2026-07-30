@@ -41,6 +41,18 @@ DATA=$(cat "$STATUS_FILE")
 # Summary line — shows in menu bar
 SUMMARY=$(echo "$DATA" | python3 -c "import sys,json; print(json.load(sys.stdin)['summary'])" 2>/dev/null)
 case "$SUMMARY" in
+  "🟡 "*)
+    SUMMARY_TEXT="${SUMMARY#🟡 }"
+    FRAME=$((($(date +%s) / 2) % 2))
+    WAITING_IMAGE_LOW="iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAtElEQVR42u2X3QnFIAxGs0O36HBu4QDZxTHMFhkj0L6kcLlQNK0hFnw4L6J8B38jEAJEAktgCRgHbISQCKEQAhOCKKxtSfu4CGQNOxqI9h0msBNC7Qj+p+rYVwK7Tu/xEG5JtATqi/DfmXgkkAeEX2SrwNa54XqRu9NxJ5AGhl8ki0BxECgWAXYQYIuAOAjIpwTClyB8E4Yfw/CLKPwqnuIxmuI5Di9IpijJpilK179gCbhwAlsP8v9bmV0UAAAAAElFTkSuQmCC"
+    WAITING_IMAGE_HIGH="iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAsUlEQVR42u2X2wkEIQxF08N0McXZhR1Zxi0jZQSyPxlYFgbNjCEu+HF+RLkHn5EURJnQFtgCzgGHgoqCmoJYQWKwtRXrEyJQLUw7iPWdJnAqCAPBv8DGvhI4bXr1IdyT6AngRfj3TDwSqBPCL6pX4BjccKPI3em4EygTwy+KR6AFCDSPAAcIsEdAAgTkrwTSlyB9E6Yfw/SLKP0qXuIxWuI5Ti9IlijJlilK979gC4TwAQsxpx38+46EAAAAAElFTkSuQmCC"
+    if [ "$FRAME" -eq 0 ]; then
+      WAITING_IMAGE="$WAITING_IMAGE_LOW"
+    else
+      WAITING_IMAGE="$WAITING_IMAGE_HIGH"
+    fi
+    echo "$SUMMARY_TEXT | image=$WAITING_IMAGE"
+    ;;
   "🔵 "*)
     SUMMARY_TEXT="${SUMMARY#🔵 }"
     FRAME=$(($(date +%s) % 2))

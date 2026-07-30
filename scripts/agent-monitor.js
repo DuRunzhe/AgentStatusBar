@@ -16,8 +16,9 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const { execFileSync, execSync } = require('child_process');
 const { getClaudeRuntimeForPid } = require('./claude-context');
+const { advanceWaitingNotification } = require('./notification-state');
 const {
   getCodexContextUsageInLines,
   getCodexTaskStateInLines,
@@ -36,7 +37,6 @@ const STATUS_FILE = '/tmp/agent-status.json';
 const POLL_MS = 2000;               // 轮询间隔
 const WAIT_THRESHOLD_MS = 30000;    // 30s 无活动 → waiting
 const STALE_THRESHOLD_MS = 120000;  // 120s 无活动 → stale
-const NOTIFICATION_COOLDOWN_MS = 3000; // 同一实例通知冷却（3 秒）
 
 // Agent definitions
 const AGENTS = [
@@ -64,7 +64,7 @@ const AGENTS = [
 // 状态追踪（按实例 key，如 "Claude:Claude #1"）
 // ============================================================
 
-/** @type {Object<string, { previousState: string, notifiedAt: number|null }>} */
+/** @type {Object<string, { previousState: string, waitingSince: number|null, remindersSent: number }>} */
 const INSTANCE_TRACKER = {};
 
 // ============================================================
@@ -75,13 +75,28 @@ const INSTANCE_TRACKER = {};
  * 发送 macOS 原生通知
  * @param {string} agentName
  * @param {string} instanceLabel
+ * @param {number} reminderStage 0=立即, 1=60 秒, 2=3 分钟最后提醒
  */
-function sendNotification(agentName, instanceLabel) {
-  const msg = `${agentName} (${instanceLabel}) 已进入 🟡 等待确认`;
+function sendNotification(agentName, instanceLabel, reminderStage) {
+  const target = instanceLabel === agentName ? agentName : instanceLabel;
+  const messages = [
+    `${target} 已进入 🟡 等待确认`,
+    `${target} 仍在等待确认（已等待 1 分钟）`,
+    `${target} 已等待确认 3 分钟，请尽快处理`,
+  ];
+  const subtitles = [
+    `${agentName} 等待确认`,
+    `${agentName} 仍在等待`,
+    `${agentName} 最后提醒`,
+  ];
+  const escapeAppleScript = value => value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const msg = messages[reminderStage] || messages[0];
+  const subtitle = subtitles[reminderStage] || subtitles[0];
+  const script = `display notification "${escapeAppleScript(msg)}" with title "Agent Monitor" subtitle "${escapeAppleScript(subtitle)}" sound name "default"`;
   try {
-    const escaped = msg.replace(/"/g, '\\"');
-    execSync(
-      `osascript -e 'display notification "${escaped}" with title "Agent Monitor" subtitle "${agentName} 等待确认"'`,
+    execFileSync(
+      '/usr/bin/osascript',
+      ['-e', script],
       { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 3000 }
     );
   } catch { /* silent */ }
@@ -472,21 +487,20 @@ function poll() {
   }
 
   // ── 通知检测（按实例 key） ──
+  const currentInstanceKeys = new Set();
   for (const agent of agents) {
     for (const inst of agent.instances) {
       const key = `${agent.name}:${inst.label}`;
-      const tracker = INSTANCE_TRACKER[key] || { previousState: 'stopped', notifiedAt: null };
-
-      if (inst.state === 'waiting' && tracker.previousState !== 'waiting') {
-        if (!tracker.notifiedAt || (now - tracker.notifiedAt) > NOTIFICATION_COOLDOWN_MS) {
-          sendNotification(agent.name, inst.label);
-          tracker.notifiedAt = now;
-        }
+      currentInstanceKeys.add(key);
+      const next = advanceWaitingNotification(INSTANCE_TRACKER[key], inst.state, now);
+      INSTANCE_TRACKER[key] = next.tracker;
+      if (next.reminderStage != null) {
+        sendNotification(agent.name, inst.label, next.reminderStage);
       }
-
-      tracker.previousState = inst.state;
-      INSTANCE_TRACKER[key] = tracker;
     }
+  }
+  for (const key of Object.keys(INSTANCE_TRACKER)) {
+    if (!currentInstanceKeys.has(key)) delete INSTANCE_TRACKER[key];
   }
 
   // ── 输出 JSON ──
