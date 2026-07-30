@@ -75,4 +75,29 @@ function getCodexTaskStateInLines(lines) {
   return null;
 }
 
-module.exports = { getCodexTaskStateInLines, hasPendingToolUseInLines };
+function getCodexContextUsageInLines(lines) {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const event = JSON.parse(lines[i]);
+    if (event.type !== 'event_msg' || event.payload?.type !== 'token_count') continue;
+
+    const info = event.payload.info;
+    const usedTokens = info?.last_token_usage?.total_tokens;
+    const windowTokens = info?.model_context_window;
+    if (!Number.isFinite(usedTokens) || !Number.isFinite(windowTokens) || windowTokens <= 0) {
+      continue;
+    }
+
+    return {
+      used_tokens: usedTokens,
+      window_tokens: windowTokens,
+      percent: Math.round((usedTokens / windowTokens) * 1000) / 10,
+    };
+  }
+  return null;
+}
+
+module.exports = {
+  getCodexContextUsageInLines,
+  getCodexTaskStateInLines,
+  hasPendingToolUseInLines,
+};

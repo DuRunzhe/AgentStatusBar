@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { hasPendingToolUseInLines } = require('./tool-state');
+const { getCodexContextUsageInLines, hasPendingToolUseInLines } = require('./tool-state');
 
 function lines(events) {
   return events.map(event => JSON.stringify(event));
@@ -74,6 +74,33 @@ test('uses the latest Codex task lifecycle event', () => {
     { type: 'event_msg', payload: { type: 'task_complete' } },
     { type: 'event_msg', payload: { type: 'task_started' } },
   ])), 'working');
+});
+
+test('extracts context usage from the latest valid Codex token count', () => {
+  assert.deepEqual(getCodexContextUsageInLines(lines([
+    { type: 'event_msg', payload: { type: 'token_count', info: null } },
+    {
+      type: 'event_msg',
+      payload: {
+        type: 'token_count',
+        info: {
+          model_context_window: 258400,
+          last_token_usage: { total_tokens: 180084 },
+          total_token_usage: { total_tokens: 15535156 },
+        },
+      },
+    },
+  ])), {
+    used_tokens: 180084,
+    window_tokens: 258400,
+    percent: 69.7,
+  });
+});
+
+test('returns no context usage when token count data is unavailable', () => {
+  assert.equal(getCodexContextUsageInLines(lines([
+    { type: 'event_msg', payload: { type: 'token_count', info: null } },
+  ])), null);
 });
 
 test('returns unknown when a tool event has no usable ID', () => {

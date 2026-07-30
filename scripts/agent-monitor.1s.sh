@@ -42,15 +42,14 @@ SUMMARY=$(echo "$DATA" | python3 -c "import sys,json; print(json.load(sys.stdin)
 case "$SUMMARY" in
   "🔵 "*)
     SUMMARY_TEXT="${SUMMARY#🔵 }"
-    FRAME=$(($(date +%s) % 4))
-    WORKING_IMAGE_SMALL="iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAGxlWElmTU0AKgAAAAgABAEaAAUAAAABAAAAPgEbAAUAAAABAAAARgEoAAMAAAABAAIAAIdpAAQAAAABAAAATgAAAAAAAACQAAAAAQAAAJAAAAABAAKgAgAEAAAAAQAAACCgAwAEAAAAAQAAACAAAAAAxqyL9QAAAAlwSFlzAAAWJQAAFiUBSVIk8AAAATFJREFUWAntlcEJwkAQRf8KVuDdAgSrEA82EvCoNyvw6CkKacRDsArBArxbgZB1foKEhCQzCbllBwQ3yZ95O7v7FwgROhA6MPUOuN4NOPkVPCI4bOW3zPUeb3mWyjjB2b365LQDRH6OBS5SZC8FZi1FMgG54YMDEvdt+aby2AZQFL9L8U1F3TbweAjEzgLRNpNq6mLmtuJUEpQaQ+gd4Jo7PCWXDbYsyuVYa3tCT8oN1784MWb5Zi2BGv/pANztQ8OgtQAUR20IxP+Ydmh1gA7xGK90AJrM0DBoLQDp0Pq5OypiHYD2CmRKnqbXmRxfajtDB6C30177hsdV8wCm1AH4Fb2d9mqNwoqPls9tALxY6O0esSTtWg66X2y9BwioW3F9GiNfx/X0YRw6EDowvQ78AL9mTcBEheGCAAAAAElFTkSuQmCC"
+    FRAME=$(($(date +%s) % 2))
     WORKING_IMAGE_MEDIUM="iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAGxlWElmTU0AKgAAAAgABAEaAAUAAAABAAAAPgEbAAUAAAABAAAARgEoAAMAAAABAAIAAIdpAAQAAAABAAAATgAAAAAAAACQAAAAAQAAAJAAAAABAAKgAgAEAAAAAQAAACCgAwAEAAAAAQAAACAAAAAAxqyL9QAAAAlwSFlzAAAWJQAAFiUBSVIk8AAAAalJREFUWAntVjtOAzEQfQ4UEVVKfg0HIB3Q5QJQRJyAIyAkaHIDkBBH4ASIhktAxwVogFBuhVKAzLy1UiSesTebBZqdIivPzrx5mbX9Bmit7cA/d8AtVP/U99DFMRwOJa8vz/Uy3+NDns/weMAEd7hxRVXcagROfBcbOJOC5wLcy4AXQuQKY1zj1k0ysQKZswu/iRXcS+ReLnTmvccTvjHEpXuf8c8t0gRYfBWPkrM1l1dt6fEqJA5SJDomEtvOf163OIEdtksMYhlmEwjffLG2a0X46YhlmP4JuNvX8CI5uQ1nwEbuAp/Y0U6H3gEeteaKk004vhEvQCfQwZESu5wr3B0Rhk7AYzeKXN7R1yB0AtMbTsuo6zMwdQJ1i9TI0wmEu70GXCLFwNQJUFiaNxVTJ0BVa9oMTJ0AJRWoLKkVuBalTCuBOgHqOSW1KSOWMSPoBFiYek5JXdaIQSzDbAIcJqjnwJuRm3cHOR6mBhObAOE5THxhv1YnwkCSnAVYIk1gSmKMgZAYybLKxuT+GUnbB6lBhNA0XY7Du/j3F4bSuEjraTvwxx34AWIobxkjPBl/AAAAAElFTkSuQmCC"
     WORKING_IMAGE_LARGE="iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAGxlWElmTU0AKgAAAAgABAEaAAUAAAABAAAAPgEbAAUAAAABAAAARgEoAAMAAAABAAIAAIdpAAQAAAABAAAATgAAAAAAAACQAAAAAQAAAJAAAAABAAKgAgAEAAAAAQAAACCgAwAEAAAAAQAAACAAAAAAxqyL9QAAAAlwSFlzAAAWJQAAFiUBSVIk8AAAAflJREFUWAnlVz1LxEAQfXug/oErBAVbDzsRtFPB66w8wR9icydYKd5Z+EME7ews/KgUxE6uFk6wyB/QQ9eZTTa7+bx4bmJxA8lsdmfnvUyS3Rdg0k0UL4AUaGOZ4rchsEF+nvysmi/xTn4AiVvyV+jhGRBSjY04FSPQli3UcES5GiPy6eE+vnGInrjUHVk+n8C+XMA0zulOV7MS5PZLPOITezgTr1lx2QQ6cp2AL2hiPWtywX4PX2jhVNynxacTYHDgmghMpU36dZ/EkB7JVhqJJAEu+wyeCOSvdx7n6eEDK/HHUYtHqWfuHpxh6kHuCGSUAL/t475wkbQZF5ybMSyzCNB3LnBsjZXTVJ8zYQVmCPAiI7CoB0r0jWBBUxCGAK9w1VmIZQgIbFaG7y/liQrMVUaA95HA7Ar4G4seKdPrTYwwDIEyAXNyGwL+lpoT6nDIwjIEgDeHEKNSDXSAISBxoztL975wUTCGACuZ6izECpdEgJbHA7wQh6KqZ1y6fZxgSUs2qwKk4VhGlW0Kw+hFqwIBckc+lLYjskTrijX7Hq0KBN2s4QDPDnLU9pQ+jCVLEmABKbFLxzAWO/4l5+KcKeI0SYBhuuKOzk06XFSCczSDnNSMWvIdsMf/VZaHRNQf0Y5SS8UFi6Mfk5AENxQR579mEYiJvPgBOsR5RMAASPEAAAAASUVORK5CYII="
-    case "$FRAME" in
-      0) WORKING_IMAGE="$WORKING_IMAGE_SMALL" ;;
-      2) WORKING_IMAGE="$WORKING_IMAGE_LARGE" ;;
-      *) WORKING_IMAGE="$WORKING_IMAGE_MEDIUM" ;;
-    esac
+    if [ "$FRAME" -eq 0 ]; then
+      WORKING_IMAGE="$WORKING_IMAGE_MEDIUM"
+    else
+      WORKING_IMAGE="$WORKING_IMAGE_LARGE"
+    fi
     echo "$SUMMARY_TEXT | image=$WORKING_IMAGE"
     ;;
   "⚪ "*)
@@ -67,6 +66,13 @@ echo "---"
 # Show each agent → instances
 echo "$DATA" | python3 -c "
 import sys, json
+
+def format_tokens(value):
+    if value >= 1_000_000:
+        return f'{value / 1_000_000:.1f}m'
+    if value >= 1_000:
+        return f'{value / 1_000:.0f}k'
+    return str(value)
 
 data = json.load(sys.stdin)
 agents = data.get('agents', [])
@@ -103,14 +109,12 @@ for a in agents:
                 m = (uptime % 3600) // 60
                 line += f' ({h}h{m}m)'
 
-        # Append last activity for waiting/ready
-        last_act = inst.get('last_activity_ms_ago')
-        if last_act and state in ('waiting', 'ready'):
-            sec = int(last_act // 1000)
-            if sec < 60:
-                line += f' 最后活动 {sec}s 前'
-            else:
-                line += f' 最后活动 {sec//60}m 前'
+        context = inst.get('context_usage')
+        if context:
+            used = format_tokens(context['used_tokens'])
+            window = format_tokens(context['window_tokens'])
+            percent = context['percent']
+            line += f' · {percent:.1f}% ({used}/{window})'
 
         if state == 'stopped':
             line += ' | sfimage=circle.fill sfcolor=#8E8E93 color=#8E8E93'

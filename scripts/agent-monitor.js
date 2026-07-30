@@ -17,7 +17,11 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
-const { getCodexTaskStateInLines, hasPendingToolUseInLines } = require('./tool-state');
+const {
+  getCodexContextUsageInLines,
+  getCodexTaskStateInLines,
+  hasPendingToolUseInLines,
+} = require('./tool-state');
 const {
   isIgnoredChildProcess,
   isPrimaryCodexSessionHeader,
@@ -308,6 +312,20 @@ function getCodexTaskState(sessionFile) {
   }
 }
 
+function getCodexContextUsage(sessionFile) {
+  try {
+    const out = execSync(`tail -200 "${sessionFile}" 2>/dev/null`, {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 2000,
+    }).trim();
+    if (!out) return null;
+    return getCodexContextUsageInLines(out.split('\n').filter(Boolean));
+  } catch {
+    return null;
+  }
+}
+
 function formatLastActivity(ms) {
   if (ms == null) return '';
   const sec = Math.floor(ms / 1000);
@@ -333,6 +351,7 @@ function getInstances(agentDef) {
       pids: [],
       uptime_sec: 0,
       last_activity_ms_ago: null,
+      context_usage: null,
     }];
   }
 
@@ -378,6 +397,9 @@ function getInstances(agentDef) {
     }
 
     const status = determineState(group.pids, mtime, now, group.sessionFile, agentDef.name);
+    const contextUsage = agentDef.name === 'Codex' && group.sessionFile
+      ? getCodexContextUsage(group.sessionFile)
+      : null;
     return {
       ...status,
       label: projectLabel,
@@ -385,6 +407,7 @@ function getInstances(agentDef) {
       pids: group.pids,
       uptime_sec: pidAge,
       last_activity_ms_ago: group.pids.length > 0 && mtime > 0 ? (now - mtime) : null,
+      context_usage: contextUsage,
     };
   });
 }
