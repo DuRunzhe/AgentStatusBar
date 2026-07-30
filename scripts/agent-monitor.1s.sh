@@ -1,8 +1,8 @@
 #!/bin/bash
 # <xbar.title>Agent Monitor</xbar.title>
-# <xbar.version>v0.1.0</xbar.version>
+# <xbar.version>v0.2.0</xbar.version>
 # <xbar.author>bitwasher</xbar.author>
-# <xbar.desc>AI Coding Agent 运行状态指示器 (Claude/Codex/OpenCode)</xbar.desc>
+# <xbar.desc>AI Coding Agent 运行状态指示器，支持多实例追踪 (Claude/Codex/OpenCode)</xbar.desc>
 # <xbar.dependencies>bash,python3</xbar.dependencies>
 # <swiftbar.hideRunInTerminal>true</swiftbar.hideRunInTerminal>
 # <swiftbar.hideLastUpdated>true</swiftbar.hideLastUpdated>
@@ -27,42 +27,52 @@ echo "$SUMMARY"
 # --- Dropdown menu ---
 echo "---"
 
-# Show each agent
+# Show each agent → instances
 echo "$DATA" | python3 -c "
 import sys, json
+
 data = json.load(sys.stdin)
-for a in data['agents']:
-    emoji = a.get('emoji', '⚪')
+agents = data.get('agents', [])
+
+for a in agents:
     name = a['name']
-    label = a.get('label', '未知')
-    state = a.get('state', 'stopped')
-    
-    detail = ''
-    pids = a.get('pids', [])
-    if pids:
-        uptime = a.get('uptime_sec', 0)
-        if uptime > 0:
+    instances = a.get('instances', [])
+
+    if not instances:
+        print(f'⚪ {name}: 已停止')
+        continue
+
+    for inst in instances:
+        emoji = inst.get('emoji', '⚪')
+        label = inst.get('label', name)
+        state = inst.get('state', 'stopped')
+        pids = inst.get('pids', [])
+        label_text = inst.get('label', '未知')
+
+        line = f'{emoji} {label}: {label_text}'
+
+        # Append uptime
+        uptime = inst.get('uptime_sec', 0)
+        if pids and uptime > 0:
             if uptime < 60:
-                detail += f' ({uptime}s)'
+                line += f' ({uptime}s)'
             elif uptime < 3600:
-                detail += f' ({uptime//60}m{uptime%60}s)'
+                line += f' ({uptime//60}m{uptime%60}s)'
             else:
                 h = uptime // 3600
                 m = (uptime % 3600) // 60
-                detail += f' ({h}h{m}m)'
-        
-        # Show last activity for waiting/stale
-        last_act = a.get('last_activity_ms_ago')
-        if last_act and state in ('waiting', 'stale'):
+                line += f' ({h}h{m}m)'
+
+        # Append last activity for waiting
+        last_act = inst.get('last_activity_ms_ago')
+        if last_act and state == 'waiting':
             sec = int(last_act // 1000)
             if sec < 60:
-                detail += f' 最后活动 {sec}s 前'
+                line += f' 最后活动 {sec}s 前'
             else:
-                detail += f' 最后活动 {sec//60}m 前'
-    else:
-        detail = ''
-    
-    print(f'{emoji} {name}: {label}{detail}')
+                line += f' 最后活动 {sec//60}m 前'
+
+        print(line)
 " 2>/dev/null
 
 echo "---"
