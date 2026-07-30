@@ -10,11 +10,28 @@
 
 STATUS_FILE="/tmp/agent-status.json"
 
+# 动态查找 node 路径，兼容 Intel/Apple Silicon
+NODE_CMD=$(command -v node 2>/dev/null || echo "/usr/local/bin/node")
+
+# 解析当前脚本的 symlink 到真实安装目录
+# SwiftBar 插件是 symlink，沿链找到原始路径
+resolve_symlink() {
+  local src="$1" dir
+  while [ -h "$src" ]; do
+    dir="$(cd -P "$(dirname "$src")" && pwd)"
+    src="$(readlink "$src")"
+    [[ $src != /* ]] && src="$dir/$src"
+  done
+  echo "$(cd -P "$(dirname "$src")" && pwd)"
+}
+SCRIPT_DIR="$(resolve_symlink "$0")"
+DAEMON_PATH="$SCRIPT_DIR/agent-monitor.js"
+
 if [ ! -f "$STATUS_FILE" ]; then
   echo "⏳ Agent Monitor"
   echo "---"
   echo "监控守护进程未启动 | color=red"
-  echo "启动守护进程 | bash=/usr/local/bin/node param0=$HOME/mycode/agent-monitor/scripts/agent-monitor.js terminal=false"
+  echo "启动守护进程 | bash=$NODE_CMD param0=$DAEMON_PATH terminal=false"
   exit 0
 fi
 
@@ -78,4 +95,4 @@ for a in agents:
 echo "---"
 echo "上次刷新: $(date '+%H:%M:%S') | color=gray size=10"
 echo "立即刷新 | refresh=true"
-echo "重启守护进程 | bash=/usr/local/bin/node param0=$HOME/mycode/agent-monitor/scripts/agent-monitor.js terminal=false"
+echo "重启守护进程 | bash=$NODE_CMD param0=$DAEMON_PATH terminal=false"
