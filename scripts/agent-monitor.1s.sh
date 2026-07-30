@@ -44,9 +44,9 @@ case "$SUMMARY" in
     SUMMARY_TEXT="${SUMMARY#🔵 }"
     FRAME=$(($(date +%s) % 4))
     if [ "$FRAME" -eq 0 ] || [ "$FRAME" -eq 3 ]; then
-      WORKING_BLUE="#69AFFF"
+      WORKING_BLUE="#5A9FFF,#64A8FF"
     else
-      WORKING_BLUE="#1677FF"
+      WORKING_BLUE="#007AFF,#0A84FF"
     fi
     echo "$SUMMARY_TEXT | sfimage=circle.fill sfcolor=$WORKING_BLUE"
     ;;
