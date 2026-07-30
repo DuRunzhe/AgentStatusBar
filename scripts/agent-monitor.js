@@ -30,7 +30,7 @@ const {
 const {
   getCodexContextUsageInLines,
   getCodexTaskStateInLines,
-  hasPendingToolUseInLines,
+  getPendingToolUseKindInLines,
 } = require('./tool-state');
 const {
   isIgnoredChildProcess,
@@ -95,11 +95,13 @@ const INSTANCE_TRACKER = {};
  * @param {string} instanceLabel
  * @param {number} reminderStage 0=立即, 1=60 秒, 2=3 分钟最后提醒
  */
-function sendNotification(agentName, instanceLabel, reminderStage) {
+function sendNotification(agentName, instanceLabel, reminderStage, state) {
   const target = instanceLabel === agentName ? agentName : instanceLabel;
   const escapeAppleScript = value => value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-  const message = TEXT.notificationMessages[reminderStage] || TEXT.notificationMessages[0];
-  const subtitleText = TEXT.notificationSubtitles[reminderStage] || TEXT.notificationSubtitles[0];
+  const messages = state === 'waiting_reply' ? TEXT.replyNotificationMessages : TEXT.notificationMessages;
+  const subtitles = state === 'waiting_reply' ? TEXT.replyNotificationSubtitles : TEXT.notificationSubtitles;
+  const message = messages[reminderStage] || messages[0];
+  const subtitleText = subtitles[reminderStage] || subtitles[0];
   const msg = message(target);
   const subtitle = subtitleText(agentName);
   const script = `display notification "${escapeAppleScript(msg)}" with title "Agent Monitor" subtitle "${escapeAppleScript(subtitle)}" sound name "default"`;
@@ -190,7 +192,8 @@ function getFileMtime(filePath) {
  * 状态体系：
  *   🔵 working  — 有实际任务子进程，或 session 最近状态为 task_started
  *   🟢 ready    — 无子进程 + session 已空闲较长时间 → 就绪，可以下达新任务
- *   🟡 waiting  — 无子进程 + session 暂停片刻 → 在等你确认/回复
+ *   🟡 waiting  — 有待批准的工具调用 → 在等你确认
+ *   🟡 waiting_reply — 有结构化询问 → 在等你回复
  *   ⚪ stopped  — 进程已退出
  *
  * 判定策略：实际任务子进程优先，辅以 session 事件和 mtime 时间窗
@@ -205,6 +208,11 @@ function getFileMtime(filePath) {
 function determineState(pids, lastEventTimeMs, now, sessionFile, agentName, nativeState = null) {
   const alive = pids && pids.length > 0;
   if (!alive) return { state: 'stopped', label: TEXT.status.stopped, emoji: '⚪' };
+
+  const pendingKind = sessionFile ? getPendingToolUseKind(sessionFile) : null;
+  if (pendingKind === 'user_input') {
+    return { state: 'waiting_reply', label: TEXT.status.waitingReply, emoji: '🟡' };
+  }
 
   if (nativeState === 'waiting') {
     return { state: 'waiting', label: TEXT.status.waiting, emoji: '🟡' };
@@ -227,14 +235,13 @@ function determineState(pids, lastEventTimeMs, now, sessionFile, agentName, nati
   // 二级信号：检查 session 文件最后事件
   // tool_use = agent 请求用工具但未执行 → 等待用户批准
   if (sessionFile) {
-    const pending = hasPendingToolUse(sessionFile);
-    if (pending === true) return { state: 'waiting', label: TEXT.status.waiting, emoji: '🟡' };
+    if (pendingKind === 'tool') return { state: 'waiting', label: TEXT.status.waiting, emoji: '🟡' };
     if (agentName === 'Codex') {
       const taskState = getCodexTaskState(sessionFile);
       if (taskState === 'working') return { state: 'working', label: TEXT.status.working, emoji: '🔵' };
       if (taskState === 'ready') return { state: 'ready', label: TEXT.status.ready, emoji: '🟢' };
     }
-    if (pending === false) return { state: 'ready', label: TEXT.status.ready, emoji: '🟢' };
+    if (pendingKind === 'none') return { state: 'ready', label: TEXT.status.ready, emoji: '🟢' };
   }
 
   // 三级信号：文件判断无结果 → 用 mtime 兜底
@@ -317,7 +324,7 @@ function getProcessCwd(pid) {
  * Claude 工作流: 用户发消息 → 写入 tool_use(请求工具) → 问用户确认 → 用户批准 → 写入 tool_result
  * pending = 存在没有对应 tool_result 的 tool_use → 有工具请求在等你批准
  */
-function hasPendingToolUse(sessionFile) {
+function getPendingToolUseKind(sessionFile) {
   try {
     if (!sessionFile || !fs.existsSync(sessionFile)) return null;
     // 读最近 30 行，跳过空行，反向分析事件序列
@@ -329,7 +336,7 @@ function hasPendingToolUse(sessionFile) {
     if (!out) return null;
 
     const lines = out.split('\n').filter(Boolean);
-    return hasPendingToolUseInLines(lines);
+    return getPendingToolUseKindInLines(lines);
   } catch {
     return null;
   }
@@ -505,15 +512,17 @@ function poll() {
   const allWorking = agents.flatMap(a => a.instances).filter(i => i.state === 'working');
   const allReady = agents.flatMap(a => a.instances).filter(i => i.state === 'ready');
   const allWaiting = agents.flatMap(a => a.instances).filter(i => i.state === 'waiting');
+  const allWaitingReply = agents.flatMap(a => a.instances).filter(i => i.state === 'waiting_reply');
 
   let summaryEmoji = '⚪', summaryLabel = TEXT.noActivity;
-  if (allWorking.length > 0 || allReady.length > 0 || allWaiting.length > 0) {
+  if (allWorking.length > 0 || allReady.length > 0 || allWaiting.length > 0 || allWaitingReply.length > 0) {
     const parts = [];
     if (allWorking.length > 0) parts.push(TEXT.countWorking(allWorking.length));
     if (allReady.length > 0) parts.push(TEXT.countReady(allReady.length));
     if (allWaiting.length > 0) parts.push(TEXT.countWaiting(allWaiting.length));
+    if (allWaitingReply.length > 0) parts.push(TEXT.countWaitingReply(allWaitingReply.length));
     summaryLabel = parts.join(' · ');
-    summaryEmoji = allWaiting.length > 0 ? '🟡' : (allWorking.length > 0 ? '🔵' : '🟢');
+    summaryEmoji = (allWaiting.length > 0 || allWaitingReply.length > 0) ? '🟡' : (allWorking.length > 0 ? '🔵' : '🟢');
   }
 
   // ── 详情行 ──
@@ -526,7 +535,7 @@ function poll() {
       }
       // 计时：使用 session 文件 mtime（最后活动时间），不用 ps -o etime（进程总寿命不准）
       if (inst.last_activity_ms_ago != null) {
-        if (inst.state === 'waiting') {
+        if (inst.state === 'waiting' || inst.state === 'waiting_reply') {
           line += ` ${formatLastActivity(inst.last_activity_ms_ago)}`;
         } else if (inst.state === 'ready') {
           line += ` ${formatLastActivity(inst.last_activity_ms_ago)}`;
@@ -547,7 +556,7 @@ function poll() {
       const next = advanceWaitingNotification(INSTANCE_TRACKER[key], inst.state, now);
       INSTANCE_TRACKER[key] = next.tracker;
       if (next.reminderStage != null) {
-        sendNotification(agent.name, inst.label, next.reminderStage);
+        sendNotification(agent.name, inst.label, next.reminderStage, inst.state);
       }
     }
   }

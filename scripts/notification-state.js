@@ -1,6 +1,7 @@
 'use strict';
 
 const WAITING_REMINDER_DELAYS_MS = [0, 60_000, 180_000];
+const ATTENTION_STATES = new Set(['waiting', 'waiting_reply']);
 
 function advanceWaitingNotification(tracker, state, now) {
   const current = tracker || {
@@ -9,7 +10,7 @@ function advanceWaitingNotification(tracker, state, now) {
     remindersSent: 0,
   };
 
-  if (state !== 'waiting') {
+  if (!ATTENTION_STATES.has(state)) {
     return {
       tracker: {
         previousState: state,
@@ -20,10 +21,10 @@ function advanceWaitingNotification(tracker, state, now) {
     };
   }
 
-  if (current.previousState !== 'waiting' || !Number.isFinite(current.waitingSince)) {
+  if (current.previousState !== state || !Number.isFinite(current.waitingSince)) {
     return {
       tracker: {
-        previousState: 'waiting',
+        previousState: state,
         waitingSince: now,
         remindersSent: 1,
       },
@@ -41,7 +42,7 @@ function advanceWaitingNotification(tracker, state, now) {
     return {
       tracker: {
         ...current,
-        previousState: 'waiting',
+        previousState: state,
         remindersSent: dueStage + 1,
       },
       reminderStage: dueStage,
@@ -49,7 +50,7 @@ function advanceWaitingNotification(tracker, state, now) {
   }
 
   return {
-    tracker: { ...current, previousState: 'waiting' },
+    tracker: { ...current, previousState: state },
     reminderStage: null,
   };
 }

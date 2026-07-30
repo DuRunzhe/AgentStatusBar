@@ -16,11 +16,20 @@ function getToolEventId(event) {
   return null;
 }
 
+function getToolEventName(event) {
+  return event.name ?? event.tool_name ?? event.function?.name ?? null;
+}
+
+function isUserInputTool(name) {
+  const normalized = String(name || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+  return normalized === 'requestuserinput' || normalized === 'askuserquestion';
+}
+
 function collectToolEvents(value, events) {
   if (!value || typeof value !== 'object') return;
 
   if (value.type === 'tool_use' || value.type === 'function_call' || value.type === 'custom_tool_call') {
-    events.push({ type: 'tool_use', id: getToolEventId(value) });
+    events.push({ type: 'tool_use', id: getToolEventId(value), name: getToolEventName(value) });
     return;
   }
   if (value.type === 'tool_result' || value.type === 'function_call_output' || value.type === 'custom_tool_call_output') {
@@ -38,13 +47,8 @@ function collectToolEvents(value, events) {
   }
 }
 
-/**
- * Returns true when at least one tool_use in the scanned window has no matching
- * tool_result. A result whose use fell outside the window is harmless because
- * matching is based on IDs rather than event counts.
- */
-function hasPendingToolUseInLines(lines) {
-  const toolUses = new Set();
+function getPendingToolUseKindInLines(lines) {
+  const toolUses = new Map();
   const toolResults = new Set();
 
   for (const line of lines) {
@@ -54,15 +58,28 @@ function hasPendingToolUseInLines(lines) {
     for (const event of events) {
       if (event.id == null || event.id === '') return null;
       const id = String(event.id);
-      if (event.type === 'tool_use') toolUses.add(id);
+      if (event.type === 'tool_use') toolUses.set(id, event.name);
       if (event.type === 'tool_result') toolResults.add(id);
     }
   }
 
-  for (const id of toolUses) {
-    if (!toolResults.has(id)) return true;
+  let hasPendingTool = false;
+  for (const [id, name] of toolUses) {
+    if (toolResults.has(id)) continue;
+    if (isUserInputTool(name)) return 'user_input';
+    hasPendingTool = true;
   }
-  return false;
+  return hasPendingTool ? 'tool' : 'none';
+}
+
+/**
+ * Returns true when at least one tool_use in the scanned window has no matching
+ * tool_result. A result whose use fell outside the window is harmless because
+ * matching is based on IDs rather than event counts.
+ */
+function hasPendingToolUseInLines(lines) {
+  const kind = getPendingToolUseKindInLines(lines);
+  return kind == null ? null : kind !== 'none';
 }
 
 function getCodexTaskStateInLines(lines) {
@@ -99,5 +116,7 @@ function getCodexContextUsageInLines(lines) {
 module.exports = {
   getCodexContextUsageInLines,
   getCodexTaskStateInLines,
+  getPendingToolUseKindInLines,
   hasPendingToolUseInLines,
+  isUserInputTool,
 };

@@ -2,7 +2,11 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { getCodexContextUsageInLines, hasPendingToolUseInLines } = require('./tool-state');
+const {
+  getCodexContextUsageInLines,
+  getPendingToolUseKindInLines,
+  hasPendingToolUseInLines,
+} = require('./tool-state');
 
 function lines(events) {
   return events.map(event => JSON.stringify(event));
@@ -107,4 +111,26 @@ test('returns unknown when a tool event has no usable ID', () => {
   assert.equal(hasPendingToolUseInLines(lines([
     { type: 'tool_use' },
   ])), null);
+});
+
+test('classifies pending Codex request_user_input as user input', () => {
+  const transcript = lines([
+    { type: 'response_item', payload: { type: 'function_call', name: 'request_user_input', call_id: 'question-1' } },
+  ]);
+  assert.equal(getPendingToolUseKindInLines(transcript), 'user_input');
+});
+
+test('classifies pending Claude AskUserQuestion as user input', () => {
+  const transcript = lines([
+    { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'AskUserQuestion', id: 'question-1' }] } },
+  ]);
+  assert.equal(getPendingToolUseKindInLines(transcript), 'user_input');
+});
+
+test('completed user input request is not pending', () => {
+  const transcript = lines([
+    { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'AskUserQuestion', id: 'question-1' }] } },
+    { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'question-1' }] } },
+  ]);
+  assert.equal(getPendingToolUseKindInLines(transcript), 'none');
 });

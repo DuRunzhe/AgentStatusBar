@@ -10,6 +10,7 @@ const MESSAGES = {
       working: 'Working',
       ready: 'Ready',
       waiting: 'Needs confirmation',
+      waitingReply: 'Waiting for reply',
       stopped: 'Stopped',
       unknown: 'Unknown',
     },
@@ -17,6 +18,7 @@ const MESSAGES = {
     countWorking: count => `${count} working`,
     countReady: count => `${count} ready`,
     countWaiting: count => `${count} waiting`,
+    countWaitingReply: count => `${count} awaiting reply`,
     lastActivity: value => `Last activity ${value} ago`,
     notificationMessages: [
       target => `${target} is waiting for confirmation`,
@@ -27,6 +29,16 @@ const MESSAGES = {
       agent => `${agent} needs confirmation`,
       agent => `${agent} is still waiting`,
       agent => `${agent} final reminder`,
+    ],
+    replyNotificationMessages: [
+      target => `${target} is waiting for your reply`,
+      target => `${target} is still waiting for your reply (1 minute)`,
+      target => `${target} has waited 3 minutes for your reply. Please respond soon.`,
+    ],
+    replyNotificationSubtitles: [
+      agent => `${agent} needs your reply`,
+      agent => `${agent} is still waiting for your reply`,
+      agent => `${agent} final reply reminder`,
     ],
     menu: {
       daemonNotRunning: 'Monitor daemon is not running',
@@ -50,6 +62,7 @@ const MESSAGES = {
       working: '进行中',
       ready: '就绪',
       waiting: '等待确认',
+      waitingReply: '等待回复',
       stopped: '已停止',
       unknown: '未知',
     },
@@ -57,6 +70,7 @@ const MESSAGES = {
     countWorking: count => `${count}个进行`,
     countReady: count => `${count}个就绪`,
     countWaiting: count => `${count}个等待`,
+    countWaitingReply: count => `${count}个等待回复`,
     lastActivity: value => `最后活动 ${value} 前`,
     notificationMessages: [
       target => `${target} 已进入 🟡 等待确认`,
@@ -66,6 +80,16 @@ const MESSAGES = {
     notificationSubtitles: [
       agent => `${agent} 等待确认`,
       agent => `${agent} 仍在等待`,
+      agent => `${agent} 最后提醒`,
+    ],
+    replyNotificationMessages: [
+      target => `${target} 正在等待你的回复`,
+      target => `${target} 仍在等待你的回复（已等待 1 分钟）`,
+      target => `${target} 已等待回复 3 分钟，请尽快处理`,
+    ],
+    replyNotificationSubtitles: [
+      agent => `${agent} 等待回复`,
+      agent => `${agent} 仍在等待回复`,
       agent => `${agent} 最后提醒`,
     ],
     menu: {
@@ -90,6 +114,7 @@ const MESSAGES = {
       working: '進行中',
       ready: '就緒',
       waiting: '等待確認',
+      waitingReply: '等待回覆',
       stopped: '已停止',
       unknown: '未知',
     },
@@ -97,6 +122,7 @@ const MESSAGES = {
     countWorking: count => `${count} 個進行中`,
     countReady: count => `${count} 個就緒`,
     countWaiting: count => `${count} 個等待`,
+    countWaitingReply: count => `${count} 個等待回覆`,
     lastActivity: value => `最後活動 ${value} 前`,
     notificationMessages: [
       target => `${target} 已進入 🟡 等待確認`,
@@ -106,6 +132,16 @@ const MESSAGES = {
     notificationSubtitles: [
       agent => `${agent} 等待確認`,
       agent => `${agent} 仍在等待`,
+      agent => `${agent} 最後提醒`,
+    ],
+    replyNotificationMessages: [
+      target => `${target} 正在等待你的回覆`,
+      target => `${target} 仍在等待你的回覆（已等待 1 分鐘）`,
+      target => `${target} 已等待回覆 3 分鐘，請儘快處理`,
+    ],
+    replyNotificationSubtitles: [
+      agent => `${agent} 等待回覆`,
+      agent => `${agent} 仍在等待回覆`,
       agent => `${agent} 最後提醒`,
     ],
     menu: {

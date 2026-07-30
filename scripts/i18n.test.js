@@ -42,5 +42,11 @@ test('detects locale through injectable macOS preferences', () => {
 test('provides English as the catalog fallback', () => {
   const messages = getMessages('unsupported');
   assert.equal(messages.status.ready, 'Ready');
+  assert.equal(messages.status.waitingReply, 'Waiting for reply');
   assert.equal(messages.menu.refreshNow, 'Refresh now');
+});
+
+test('localizes the waiting for reply status', () => {
+  assert.equal(getMessages('zh-Hans').status.waitingReply, '等待回复');
+  assert.equal(getMessages('zh-Hant').status.waitingReply, '等待回覆');
 });

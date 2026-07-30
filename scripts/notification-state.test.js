@@ -48,3 +48,19 @@ test('resets reminders after leaving waiting', () => {
   assert.equal(waitingAgain.reminderStage, 0);
   assert.equal(waitingAgain.tracker.waitingSince, 3000);
 });
+
+test('uses the same reminder schedule while waiting for a reply', () => {
+  let result = advanceWaitingNotification(null, 'waiting_reply', 1000);
+  assert.equal(result.reminderStage, 0);
+  assert.equal(result.tracker.previousState, 'waiting_reply');
+
+  result = advanceWaitingNotification(result.tracker, 'waiting_reply', 61_000);
+  assert.equal(result.reminderStage, 1);
+});
+
+test('notifies again when the required human action changes', () => {
+  const waiting = advanceWaitingNotification(null, 'waiting', 1000).tracker;
+  const reply = advanceWaitingNotification(waiting, 'waiting_reply', 2000);
+  assert.equal(reply.reminderStage, 0);
+  assert.equal(reply.tracker.previousState, 'waiting_reply');
+});
