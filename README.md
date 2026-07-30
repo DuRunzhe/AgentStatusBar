@@ -1,77 +1,96 @@
-# Agent Monitor 🖥️🔍
+# AgentStatusBar
 
-> macOS 菜单栏 AI Coding Agent 运行状态指示器
+macOS 菜单栏里的 AI Coding Agent 状态监控器。通过 SwiftBar 汇总 Claude Code、Codex CLI 和 OpenCode 的运行状态、进程时长与上下文占用，并可点击菜单项跳回对应终端会话。
 
-在菜单栏一眼看清 **Claude Code / Codex CLI / OpenCode** 当前状态——在跑、在等、还是已经停了。不用切终端就知道 agent 在干嘛。
+## 显示效果
 
----
-
-## 效果预览
-
-菜单栏显示效果：
-
-```
-🔵 1个进行 · 1个等待
-├── 🔵 Codex: 进行中 (PID 34228, 2h36m)
-├── 🟡 Claude: 等待确认
+```text
+1个进行 · 2个就绪
+├── 🟢 Claude: 就绪 (2h36m) · 63.0% (126k/200k)
+├── 🟢 Codex (src): 就绪 (70h25m) · 33.8% (87k/258k)
+├── 🔵 Codex (AgentStatusBar): 进行中 (1h36m) · 44.6% (115k/258k)
 └── [灰色圆点] OpenCode: 已停止
 ```
 
-- 🔵 **进行中** — 正在处理任务，菜单栏蓝色图标以中圆/大圆模拟心跳
-- 🟢 **就绪** — 进程存活，当前没有未完成任务
-- 🟡 **等待确认** — 存在尚未返回结果的工具调用，需要用户介入
-- 灰色圆点 **已停止** — 进程已退出
+- 🔵 **进行中**：正在处理任务；顶部蓝色圆点以中圆/大圆每秒交替，形成心跳提示。
+- 🟢 **就绪**：进程存活，当前没有未完成任务。
+- 🟡 **等待确认**：存在尚未返回结果的工具调用，可能需要用户确认。
+- 灰色圆点 **已停止**：进程不存在。
 
-点击菜单栏图标展开下拉菜单，可查看详细状态、手动刷新、或重启守护进程。
+点击菜单栏图标展开详情。点击存活的 Agent 行可跳转到对应终端会话；已停止项不可点击。
 
----
+## 功能
+
+| 功能 | 说明 |
+|---|---|
+| 多 Agent / 多实例 | 同时监控 Claude Code、Codex CLI、OpenCode，并按项目区分多个会话 |
+| 四态显示 | 进行中、就绪、等待确认、已停止 |
+| 上下文占用 | Claude Code 和 Codex 显示百分比及 `已用/窗口` token 数 |
+| 工具调用配对 | 按 tool ID 配对 `tool_use` 与 `tool_result`，避免并行调用和扫描窗口截断误判 |
+| 进程时长 | 显示 Agent 进程持续运行时间 |
+| 会话跳转 | Terminal.app / iTerm2 精确切换标签页，其他受支持终端降级为激活应用 |
+| 等待通知 | 实例进入等待确认状态时发送 macOS 通知 |
+| 自动恢复 | launchd 通过 `KeepAlive` 管理守护进程 |
+
+## 环境要求
+
+- macOS
+- [SwiftBar](https://github.com/swiftbar/SwiftBar)
+- Node.js
+- Python 3（用于 SwiftBar 输出格式化）
+
+```bash
+brew install swiftbar node python
+```
 
 ## 安装
 
-### 前置依赖
-
-- [SwiftBar](https://github.com/swiftbar/SwiftBar) — macOS 菜单栏工具
-  ```bash
-  brew install swiftbar
-  ```
-- Node.js（已安装即可，无需额外配置）
-
-### 1. 下载项目
+### 1. 克隆仓库
 
 ```bash
-git clone https://github.com/yourusername/agent-monitor.git ~/mycode/agent-monitor
-cd ~/mycode/agent-monitor
+git clone https://github.com/DuRunzhe/AgentStatusBar.git
+cd AgentStatusBar
 ```
 
-### 2. 安装插件
+以下命令假设当前目录就是仓库根目录。
 
-将 SwiftBar 插件 symlink 到 SwiftBar 插件目录：
+### 2. 安装 SwiftBar 插件
 
 ```bash
-mkdir -p ~/Library/Application\ Support/swiftbar/plugins
-ln -sf ~/mycode/agent-monitor/scripts/agent-monitor.1s.sh \
-  ~/Library/Application\ Support/swiftbar/plugins/agent-monitor.1s.sh
+REPO_DIR="$(pwd)"
+SWIFTBAR_DIR="$HOME/Library/Application Support/SwiftBar/Plugins"
+mkdir -p "$SWIFTBAR_DIR"
+ln -sf "$REPO_DIR/scripts/agent-monitor.1s.sh" \
+  "$SWIFTBAR_DIR/agent-monitor.1s.sh"
 ```
 
-### 3. 启动守护进程
+打开 SwiftBar，并将插件目录设置为：
 
-先启用 Claude Code 上下文采集。安装器会保留现有 Claude statusline 命令及其输出：
+```text
+~/Library/Application Support/SwiftBar/Plugins
+```
+
+### 3. 启用 Claude 上下文采集
 
 ```bash
 node scripts/install-claude-statusline.js
 ```
 
-方式一：手动启动（测试用）
+安装器会更新 `~/.claude/settings.json`，并保留、转发已有的 Claude statusline 命令和输出。Claude Code 原生提供的上下文数据会写入：
 
-```bash
-node ~/mycode/agent-monitor/scripts/agent-monitor.js
+```text
+/tmp/agent-statusbar-claude-context/
 ```
 
-方式二：通过 launchd 自动启动（推荐）
+### 4. 安装 launchd 守护进程
 
 ```bash
-# 创建 plist
-cat > ~/Library/LaunchAgents/openclaw.agent-monitor.plist << 'EOF'
+REPO_DIR="$(pwd)"
+NODE_BIN="$(command -v node)"
+PLIST="$HOME/Library/LaunchAgents/openclaw.agent-monitor.plist"
+
+mkdir -p "$HOME/Library/LaunchAgents"
+cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -80,13 +99,15 @@ cat > ~/Library/LaunchAgents/openclaw.agent-monitor.plist << 'EOF'
     <string>openclaw.agent-monitor</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/local/bin/node</string>
-        <string>${HOME}/mycode/agent-monitor/scripts/agent-monitor.js</string>
+        <string>$NODE_BIN</string>
+        <string>$REPO_DIR/scripts/agent-monitor.js</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
     <true/>
+    <key>ProcessType</key>
+    <string>Background</string>
     <key>StandardOutPath</key>
     <string>/tmp/agent-monitor.stdout.log</string>
     <key>StandardErrorPath</key>
@@ -95,136 +116,117 @@ cat > ~/Library/LaunchAgents/openclaw.agent-monitor.plist << 'EOF'
 </plist>
 EOF
 
-# 加载服务
-launchctl load ~/Library/LaunchAgents/openclaw.agent-monitor.plist
+launchctl bootout "gui/$(id -u)/openclaw.agent-monitor" 2>/dev/null || true
+launchctl bootstrap "gui/$(id -u)" "$PLIST"
+launchctl enable "gui/$(id -u)/openclaw.agent-monitor"
+launchctl kickstart -k "gui/$(id -u)/openclaw.agent-monitor"
 ```
 
-### 4. 启动 SwiftBar
+SwiftBar 每秒刷新一次菜单，守护进程每 2 秒更新一次 `/tmp/agent-status.json`。
 
-打开 SwiftBar，首次运行会提示选择插件目录，选择：
-
-```
-~/Library/Application Support/swiftbar/plugins/
-```
-
-菜单栏就会出现 Agent Monitor 的状态图标 🟢。
-
----
-
-## 使用方式
-
-**安装即用，无需任何手动操作。**
+## 使用
 
 | 操作 | 方式 |
 |---|---|
-| 查看状态 | 看菜单栏图标即可 |
-| 查看详情 | 点击图标展开下拉菜单 |
-| 手动刷新 | 点击「立即刷新」 |
-| 重启守护进程 | 点击「重启守护进程」 |
+| 查看汇总 | 查看 macOS 顶部菜单栏 |
+| 查看实例详情 | 点击菜单栏图标 |
+| 跳转 Agent 会话 | 点击存活的 Agent 菜单项 |
+| 立即刷新 | 点击菜单底部的“立即刷新” |
+| 重启守护进程 | 点击菜单底部的“重启守护进程” |
 
-监控的 Agent 包括：
+会话跳转支持：
 
-- **Claude Code** — 通过 session 注册表配对进程，并从 statusline 获取原生上下文窗口数据
-- **Codex CLI** — 检测 `codex` 进程 + `~/.codex/history.jsonl` 文件活动
-- **OpenCode** — 检测 `opencode` 进程 + `~/.local/share/opencode/**/storage/*` 文件活动
+- Terminal.app、iTerm2：按 PID 对应的 TTY 精确切换到窗口/标签页。
+- Warp、Visual Studio Code、Cursor、Windsurf、kitty、Alacritty：无法精确定位标签页时激活对应应用。
+- 首次跳转时，macOS 可能询问 SwiftBar/Node.js 的“自动化”权限，需要允许控制终端应用。
 
----
+## 数据来源
 
-## 支持功能
+- **Claude Code**：`~/.claude/sessions/<PID>.json` 提供 PID/session/cwd 配对；Claude statusline 提供会话路径、上下文窗口和使用率。
+- **Codex CLI**：读取 `~/.codex/sessions/**/rollout-*.jsonl`，只选择主会话 rollout，并使用最近一次有效 `last_token_usage`。
+- **OpenCode**：检测 `opencode` 进程及 `~/.local/share/opencode/**/storage/*`。
 
-### ✅ 当前功能
+## 状态判定
 
-| 功能 | 说明 |
-|---|---|
-| **进程存活检测** | 通过 `pgrep` 实时检测 Claude Code / Codex CLI / OpenCode 进程 |
-| **活动状态判断** | 结合进程存活 + session 文件更新时间，区分运行/等待/停止 |
-| **运行时长统计** | 显示每个 agent 的进程已运行时间 |
-| **上下文使用率** | Claude Code / Codex 会话显示当前上下文 token 占用 |
-| **四态显示** | 🔵 进行中 / 🟢 就绪 / 🟡 等待确认 / 灰色已停止 |
-| **菜单栏汇总** | 菜单栏显示汇总状态（如 `🟢 2个运行 · 1个等待`） |
-| **下拉菜单详情** | 点击图标展示每个 agent 的详细状态 |
-| **会话窗口跳转** | 点击运行中的 Agent 菜单项，跳转到对应终端窗口或应用 |
-| **手动刷新** | 下拉菜单中一键刷新 |
-| **守护进程自动恢复** | launchd KeepAlive 确保进程崩溃后自动重启 |
-| **2s 轮询刷新** | 守护进程每 2 秒检测一次，菜单栏每 1 秒读取最新状态 |
+判定顺序如下：
 
-### 🚧 未来规划
+1. 进程不存在：**已停止**。
+2. 存在实际任务子进程：**进行中**（忽略 Codex 常驻的 `codex-code-mode-host`）。
+3. 最近扫描窗口中存在没有同 ID 结果的工具调用：**等待确认**。
+4. Codex 最近生命周期事件为 `task_started` / `task_complete`：**进行中** / **就绪**。
+5. 会话事件无法判断时，使用文件更新时间兜底。
 
-- [ ] Agent 退出时系统通知提醒
-- [ ] 更多 Agent 支持（Cursor, Windsurf 等）
-- [ ] 自定义阈值（等待 / 卡死判定时间）
-- [ ] 多语言状态标签
-- [ ] 历史状态图表
-
----
+工具调用不是简单反向计数，而是按 tool ID 独立配对；窗口内只有结果、对应调用位于窗口外时，不会产生 pending。
 
 ## 架构
 
+```text
+Claude statusline ──> /tmp/agent-statusbar-claude-context/*.json ──┐
+Codex rollout ──────────────────────────────────────────────────────┤
+OpenCode storage / process info ────────────────────────────────────┤
+                                                                    v
+                                                        agent-monitor.js
+                                                        每 2 秒聚合状态
+                                                                    |
+                                                                    v
+                                                        /tmp/agent-status.json
+                                                                    |
+                                                                    v
+                                                        agent-monitor.1s.sh
+                                                        SwiftBar 每秒渲染
+
+点击 Agent 行 ──> focus-agent-session.js ──> TTY ──> 终端窗口/应用
 ```
-┌─────────────────────────┐
-│  agent-monitor.js       │  ← Node.js 守护进程（launchd 管理）
-│  (pgrep + session data) │
-│  每 2s 轮询一次         │
-└──────────┬──────────────┘
-           │ 写入 /tmp/agent-status.json
-           ▼
-┌─────────────────────────┐
-│  agent-monitor.1s.sh    │  ← SwiftBar 插件
-│  (Shell + Python 解析)  │     每 1s 读取一次
-│  输出到 macOS 菜单栏    │
-└─────────────────────────┘
-```
 
-**数据流：** Claude statusline / Codex rollout → 守护进程 Node.js → JSON → SwiftBar → 菜单栏
+## 配置
 
-**状态判定策略：**
-1. 进程不存在 → 灰色圆点 **已停止**
-2. 存在实际任务子进程（排除常驻辅助进程）→ 🔵 **进行中**
-3. session/rollout 存在未完成的 tool call → 🟡 **等待确认**
-4. Codex rollout 最近事件为 `task_started` / `task_complete` → 🔵 **进行中** / 🟢 **就绪**
-5. 无法读取事件时，使用 session 文件更新时间兜底
-
-Claude Code 的 PID 与会话通过 `~/.claude/sessions/<PID>.json` 配对。statusline 采集器将 Claude Code 原生提供的上下文窗口大小和使用率写入 `/tmp/agent-statusbar-claude-context/`，不依赖模型名称硬编码。
-
-运行中的 Agent 菜单项通过 PID 定位 TTY。Terminal.app 和 iTerm2 支持精确切换到对应标签页；Warp、VS Code、Cursor、Windsurf、kitty 和 Alacritty 在无法精确定位标签页时会激活对应应用。已停止实例不会触发跳转。
-
----
-
-## 配置文件
-
-编辑 `scripts/agent-monitor.js` 顶部即可调整：
+轮询与兜底阈值位于 `scripts/agent-monitor.js`：
 
 ```js
-const POLL_MS = 2000;              // 轮询间隔（毫秒）
-const WAIT_THRESHOLD_MS = 30000;   // 30s 无活动 → 🟡 等待确认
-const STALE_THRESHOLD_MS = 120000; // 120s 无活动（目前降级为绿）
+const POLL_MS = 2000;
+const WAIT_THRESHOLD_MS = 30000;
 ```
 
-如需增加新的 Agent，在 `AGENTS` 数组中添加一项，指定进程名和 session 文件路径即可。
+增加新的 Agent 不仅需要扩展 `AGENTS` 配置，还需要为其实现会话文件配对和状态解析逻辑。
 
----
+## 验证与排障
+
+```bash
+# 查看 SwiftBar 实际输出
+bash scripts/agent-monitor.1s.sh
+
+# 查看守护进程状态
+launchctl print "gui/$(id -u)/openclaw.agent-monitor"
+
+# 查看错误日志
+tail -n 50 /tmp/agent-monitor.stderr.log
+
+# 重新加载 Claude statusline 集成
+node scripts/install-claude-statusline.js
+
+# 运行测试与语法检查
+node --test scripts/*.test.js
+node --check scripts/agent-monitor.js
+bash -n scripts/agent-monitor.1s.sh
+```
+
+常见问题：
+
+- 菜单栏没有出现：确认 SwiftBar 插件目录及 `agent-monitor.1s.sh` 软链接正确。
+- 显示“监控守护进程未启动”：执行安装步骤中的 `launchctl bootstrap` / `kickstart` 命令。
+- Claude 没有上下文数据：重新运行安装器，并在 Claude 会话产生一次 statusline 更新。
+- 点击 Agent 没有跳转：检查 macOS“系统设置 → 隐私与安全性 → 自动化”中的终端控制权限。
 
 ## 开发
 
+项目没有 npm 依赖或构建步骤。修改脚本后直接运行测试：
+
 ```bash
-# 克隆
-git clone ~/mycode/agent-monitor
-cd agent-monitor
-
-# 本地测试运行守护进程
-node scripts/agent-monitor.js
-
-# 单独测试 SwiftBar 插件输出
-bash scripts/agent-monitor.1s.sh
-
-# 运行全部测试
+git clone https://github.com/DuRunzhe/AgentStatusBar.git
+cd AgentStatusBar
 node --test scripts/*.test.js
 ```
 
-项目纯脚本实现，无 npm 依赖，零编译。
+## License
 
----
-
-## 许可证
-
-Apache License 2.0
+[Apache License 2.0](LICENSE)
