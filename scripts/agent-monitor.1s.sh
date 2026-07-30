@@ -63,9 +63,9 @@ for a in agents:
                 m = (uptime % 3600) // 60
                 line += f' ({h}h{m}m)'
 
-        # Append last activity for waiting
+        # Append last activity for waiting/ready
         last_act = inst.get('last_activity_ms_ago')
-        if last_act and state == 'waiting':
+        if last_act and state in ('waiting', 'ready'):
             sec = int(last_act // 1000)
             if sec < 60:
                 line += f' 最后活动 {sec}s 前'

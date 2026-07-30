@@ -136,16 +136,32 @@ function getFileMtime(filePath) {
 
 /**
  * 判断实例状态
+ *
+ * 状态体系：
+ *   🔵 working  — 有子进程在跑 → 正在做事（最准确的信号）
+ *                  无子进程但 session 近期有写入 → 刚结束任务不久
+ *   🟢 ready    — 无子进程 + session 已空闲较长时间 → 就绪，可以下达新任务
+ *   🟡 waiting  — 无子进程 + session 暂停片刻 → 在等你确认/回复
+ *   ⚪ stopped  — 进程已退出
+ *
+ * 判定策略：子进程检测优先（pgrep -P），辅以 session 文件 mtime 时间窗
  */
 function determineState(pids, lastEventTimeMs, now) {
   const alive = pids && pids.length > 0;
   if (!alive) return { state: 'stopped', label: '已停止', emoji: '⚪' };
-  if (!lastEventTimeMs) return { state: 'running', label: '运行中', emoji: '🟢' };
+
+  // 一级信号：是否有子进程（agent 做事时必定 spawn 子进程）
+  for (const pid of pids) {
+    if (hasChildProcesses(pid)) return { state: 'working', label: '进行中', emoji: '🔵' };
+  }
+
+  // 无子进程 → agent 空闲。用 mtime 时间窗区分
+  if (!lastEventTimeMs) return { state: 'ready', label: '可交互', emoji: '🟢' };
 
   const age = now - lastEventTimeMs;
-  if (age < WAIT_THRESHOLD_MS) return { state: 'running', label: '进行中', emoji: '🟢' };
+  if (age < WAIT_THRESHOLD_MS) return { state: 'working', label: '进行中', emoji: '🔵' };
   if (age < STALE_THRESHOLD_MS) return { state: 'waiting', label: '等待确认', emoji: '🟡' };
-  return { state: 'running', label: '运行中', emoji: '🟢' };
+  return { state: 'ready', label: '可交互', emoji: '🟢' };
 }
 
 function getPidAge(pid) {
@@ -172,6 +188,22 @@ function formatUptime(sec) {
   const h = Math.floor(sec / 3600);
   const m = Math.floor((sec % 3600) / 60);
   return `${h}h${m}m`;
+}
+
+/**
+ * 检查 PID 是否有活跃子进程（agent 做事时必定有）
+ */
+function hasChildProcesses(pid) {
+  try {
+    const out = execSync(`pgrep -P ${pid} 2>/dev/null`, {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 2000,
+    }).trim();
+    return out.length > 0;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -283,16 +315,18 @@ function poll() {
   }
 
   // ── 汇总数量 ──
-  const allRunning = agents.flatMap(a => a.instances).filter(i => i.state === 'running');
+  const allWorking = agents.flatMap(a => a.instances).filter(i => i.state === 'working');
+  const allReady = agents.flatMap(a => a.instances).filter(i => i.state === 'ready');
   const allWaiting = agents.flatMap(a => a.instances).filter(i => i.state === 'waiting');
 
   let summaryEmoji = '⚪', summaryLabel = '无活动';
-  if (allRunning.length > 0 || allWaiting.length > 0) {
+  if (allWorking.length > 0 || allReady.length > 0 || allWaiting.length > 0) {
     const parts = [];
-    if (allRunning.length > 0) parts.push(`${allRunning.length}个运行`);
-    if (allWaiting.length > 0) parts.push(`${allWaiting.length}个等待`);
+    if (allWorking.length > 0) parts.push(`🔵${allWorking.length}个进行`);
+    if (allReady.length > 0) parts.push(`🟢${allReady.length}个就绪`);
+    if (allWaiting.length > 0) parts.push(`🟡${allWaiting.length}个等待`);
     summaryLabel = parts.join(' · ');
-    summaryEmoji = allWaiting.length > 0 ? '🟡' : '🟢';
+    summaryEmoji = allWaiting.length > 0 ? '🟡' : (allWorking.length > 0 ? '🔵' : '🟢');
   }
 
   // ── 详情行 ──
@@ -307,6 +341,8 @@ function poll() {
         line += ')';
       }
       if (inst.last_activity_ms_ago != null && inst.state === 'waiting') {
+        line += ` ${formatLastActivity(inst.last_activity_ms_ago)}`;
+      } else if (inst.last_activity_ms_ago != null && inst.state === 'ready') {
         line += ` ${formatLastActivity(inst.last_activity_ms_ago)}`;
       }
       details.push(line);
