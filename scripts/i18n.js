@@ -17,7 +17,7 @@ const MESSAGES = {
     noActivity: 'No activity',
     countWorking: count => `${count} working`,
     countReady: count => `${count} ready`,
-    countWaiting: count => `${count} waiting`,
+    countWaiting: count => `${count} awaiting confirmation`,
     countWaitingReply: count => `${count} awaiting reply`,
     lastActivity: value => `Last activity ${value} ago`,
     notificationMessages: [
@@ -67,9 +67,9 @@ const MESSAGES = {
       unknown: '未知',
     },
     noActivity: '无活动',
-    countWorking: count => `${count}个进行`,
+    countWorking: count => `${count}个进行中`,
     countReady: count => `${count}个就绪`,
-    countWaiting: count => `${count}个等待`,
+    countWaiting: count => `${count}个等待确认`,
     countWaitingReply: count => `${count}个等待回复`,
     lastActivity: value => `最后活动 ${value} 前`,
     notificationMessages: [

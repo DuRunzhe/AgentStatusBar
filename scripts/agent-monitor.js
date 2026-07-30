@@ -22,6 +22,7 @@ const { detectLocale, getMessages, getUiStrings } = require('./i18n');
 const { advanceWaitingNotification } = require('./notification-state');
 const { readDisplayConfig } = require('./display-config');
 const { acquireProcessLock } = require('./process-lock');
+const { buildStatusSummary } = require('./status-summary');
 const {
   getClaudeModelInLines,
   getCodexModelInLines,
@@ -514,16 +515,12 @@ function poll() {
   const allWaiting = agents.flatMap(a => a.instances).filter(i => i.state === 'waiting');
   const allWaitingReply = agents.flatMap(a => a.instances).filter(i => i.state === 'waiting_reply');
 
-  let summaryEmoji = '⚪', summaryLabel = TEXT.noActivity;
-  if (allWorking.length > 0 || allReady.length > 0 || allWaiting.length > 0 || allWaitingReply.length > 0) {
-    const parts = [];
-    if (allWorking.length > 0) parts.push(TEXT.countWorking(allWorking.length));
-    if (allReady.length > 0) parts.push(TEXT.countReady(allReady.length));
-    if (allWaiting.length > 0) parts.push(TEXT.countWaiting(allWaiting.length));
-    if (allWaitingReply.length > 0) parts.push(TEXT.countWaitingReply(allWaitingReply.length));
-    summaryLabel = parts.join(' · ');
-    summaryEmoji = (allWaiting.length > 0 || allWaitingReply.length > 0) ? '🟡' : (allWorking.length > 0 ? '🔵' : '🟢');
-  }
+  const summary = buildStatusSummary({
+    waiting: allWaiting.length,
+    waitingReply: allWaitingReply.length,
+    working: allWorking.length,
+    ready: allReady.length,
+  }, TEXT);
 
   // ── 详情行 ──
   const details = [];
@@ -568,7 +565,7 @@ function poll() {
   const output = {
     timestamp: new Date().toISOString(),
     locale: LOCALE,
-    summary: `${summaryEmoji} ${summaryLabel}`,
+    summary: `${summary.emoji} ${summary.label}`,
     ui: getUiStrings(LOCALE),
     display_config: readDisplayConfig(),
     detail: details,
