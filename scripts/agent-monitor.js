@@ -236,23 +236,30 @@ function getProcessCwd(pid) {
 }
 
 /**
- * 检查 session 文件最后一行是否为待定 tool_use
- * Claude 工作流: 用户发消息 → agent 决定用工具 → 写入 tool_use → 问用户确认
- * — tool_use 是最后事件且无后续 tool_result → agent 在等你的批准
+ * 扫描 session 文件最近 N 行，用 pending 计数判断是否有未确认的 tool_use
+ * Claude 工作流: 用户发消息 → 写入 tool_use(请求工具) → 问用户确认 → 用户批准 → 写入 tool_result
+ * pending = tool_use数 - tool_result数 > 0 → 有工具请求在等你批准
  */
 function hasPendingToolUse(sessionFile) {
   try {
     if (!sessionFile || !fs.existsSync(sessionFile)) return null;
-    const out = execSync(`tail -1 "${sessionFile}" 2>/dev/null`, {
+    // 读最近 30 行，跳过空行，反向分析事件序列
+    const out = execSync(`tail -30 "${sessionFile}" 2>/dev/null`, {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
       timeout: 2000,
     }).trim();
     if (!out) return null;
-    const event = JSON.parse(out);
-    if (event.type === 'tool_use') return true;      // 请求工具但未执行 → 等待确认
-    if (event.type === 'tool_result') return false;    // 工具已执行 → 就绪
-    return null; // user/其他 → 无法判断
+
+    const lines = out.split('\n').filter(Boolean);
+    let pending = 0;
+    // 反向扫描: tool_use→递增, tool_result→递减
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const ev = JSON.parse(lines[i]);
+      if (ev.type === 'tool_use') pending++;
+      if (ev.type === 'tool_result') pending = Math.max(0, pending - 1);
+    }
+    return pending > 0;
   } catch {
     return null;
   }
