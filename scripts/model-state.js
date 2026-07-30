@@ -9,9 +9,13 @@ function normalizeModelName(value) {
   return normalized ? normalized.slice(0, 80) : null;
 }
 
+function parseEvent(value) {
+  return typeof value === 'string' ? JSON.parse(value) : value;
+}
+
 function getClaudeModelInLines(lines) {
   for (let i = lines.length - 1; i >= 0; i--) {
-    const event = JSON.parse(lines[i]);
+    const event = parseEvent(lines[i]);
     if (event.type !== 'assistant') continue;
     const model = normalizeModelName(event.message?.model);
     if (model) return model;
@@ -21,7 +25,7 @@ function getClaudeModelInLines(lines) {
 
 function getCodexModelInLines(lines) {
   for (let i = lines.length - 1; i >= 0; i--) {
-    const event = JSON.parse(lines[i]);
+    const event = parseEvent(lines[i]);
     if (event.type === 'turn_context') {
       const model = normalizeModelName(event.payload?.model);
       if (model) return model;

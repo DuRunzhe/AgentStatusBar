@@ -3,8 +3,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
+  getClaudeReplyRequestInLines,
   getClaudeTaskStateInLines,
   getCodexContextUsageInLines,
+  getCodexTaskStateInLines,
   getPendingToolUseKindInLines,
   hasPendingToolUseInLines,
 } = require('./tool-state');
@@ -70,7 +72,6 @@ test('matches Codex custom tool calls by call ID', () => {
 });
 
 test('uses the latest Codex task lifecycle event', () => {
-  const { getCodexTaskStateInLines } = require('./tool-state');
   assert.equal(getCodexTaskStateInLines(lines([
     { type: 'event_msg', payload: { type: 'task_started' } },
     { type: 'event_msg', payload: { type: 'task_complete' } },
@@ -79,6 +80,15 @@ test('uses the latest Codex task lifecycle event', () => {
     { type: 'event_msg', payload: { type: 'task_complete' } },
     { type: 'event_msg', payload: { type: 'task_started' } },
   ])), 'working');
+});
+
+test('advances Codex task state incrementally from parsed events', () => {
+  assert.equal(getCodexTaskStateInLines([
+    { type: 'response_item', payload: { type: 'reasoning' } },
+  ], 'ready'), 'working');
+  assert.equal(getCodexTaskStateInLines([
+    { type: 'event_msg', payload: { type: 'task_complete' } },
+  ], 'working'), 'ready');
 });
 
 test('treats response activity after an older task_complete as working', () => {
@@ -120,6 +130,31 @@ test('settles Claude final response to ready', () => {
     { type: 'assistant', message: { stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'call-1' }] } },
     { type: 'system', subtype: 'turn_duration' },
   ])), 'ready');
+});
+
+test('detects a terminal Claude question until the next human reply', () => {
+  const question = [
+    {
+      type: 'assistant',
+      message: {
+        stop_reason: 'end_turn',
+        content: [{ type: 'text', text: '**要升级到最新版吗？** \u{1F4AC}' }],
+      },
+    },
+    { type: 'system', subtype: 'turn_duration' },
+  ];
+  assert.equal(getClaudeReplyRequestInLines(question), true);
+  assert.equal(getClaudeReplyRequestInLines([
+    ...question,
+    { type: 'user', origin: { kind: 'human' }, message: { content: '可以' } },
+  ]), false);
+});
+
+test('does not treat a declarative Claude final response as waiting for reply', () => {
+  assert.equal(getClaudeReplyRequestInLines([{
+    type: 'assistant',
+    message: { stop_reason: 'end_turn', content: [{ type: 'text', text: '升级已经完成。' }] },
+  }]), false);
 });
 
 test('extracts context usage from the latest valid Codex token count', () => {

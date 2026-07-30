@@ -35,6 +35,12 @@ test('uses the latest Codex turn model with settings fallback', () => {
   ])), 'gpt-5.5');
 });
 
+test('reads models from already parsed transcript events', () => {
+  assert.equal(getCodexModelInLines([
+    { type: 'turn_context', payload: { model: 'gpt-5.6-sol' } },
+  ]), 'gpt-5.6-sol');
+});
+
 test('formats an OpenCode provider and model', () => {
   assert.equal(getOpenCodeModelFromMessage({
     model: { providerID: 'google', modelID: 'gemini-3-pro-preview' },

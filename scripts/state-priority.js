@@ -6,11 +6,13 @@ function resolveAgentState({
   nativeState = null,
   hasActiveChild = false,
   transcriptState = null,
+  replyRequested = false,
 }) {
   if (!alive) return 'stopped';
   if (pendingKind === 'user_input') return 'waiting_reply';
   if (nativeState === 'waiting') return 'waiting';
   if (nativeState === 'working') return 'working';
+  if (replyRequested) return 'waiting_reply';
   if (hasActiveChild) return 'working';
   if (pendingKind === 'tool') return 'waiting';
   if (transcriptState === 'working') return 'working';

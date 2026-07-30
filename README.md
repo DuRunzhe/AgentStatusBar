@@ -157,6 +157,7 @@ SwiftBar 每秒刷新一次菜单，守护进程每 2 秒更新一次 `/tmp/agen
 - **Claude Code**：`~/.claude/sessions/<PID>.json` 提供 PID/session/cwd 配对及原生 `busy` / `idle` / `waiting` 状态；Claude statusline 和 transcript 提供模型、会话路径、上下文窗口及使用率。
 - **Codex CLI**：读取 `~/.codex/sessions/**/rollout-*.jsonl`，只选择主会话 rollout，并使用最新模型和最近一次有效 `last_token_usage`。
 - **OpenCode**：检测 `opencode` 进程及 `~/.local/share/opencode/**/storage/*`，从当前会话的最新消息读取 provider/model。
+- **进程发现**：SwiftBar 后台采集器只写入 agent 主进程及直属子进程；PID 到 cwd/session 的 `lsof` 元数据低频异步刷新，不阻塞状态轮询。
 
 ## 状态判定
 
@@ -165,12 +166,13 @@ SwiftBar 每秒刷新一次菜单，守护进程每 2 秒更新一次 `/tmp/agen
 1. 进程不存在：**已停止**。
 2. 存在尚无同 ID 结果的 `request_user_input` 或 `AskUserQuestion`：**等待回复**。
 3. Claude 原生状态为 `busy` / `waiting`：分别判定为**进行中** / **等待确认**。
-4. 存在实际任务子进程：**进行中**（忽略 Codex 常驻的 `codex-code-mode-host`）。
-5. 最近扫描窗口中存在没有同 ID 结果的其他工具调用：**等待确认**。
-6. Claude transcript 中最新回合仍有用户请求、thinking 或工具活动：**进行中**；明确 `end_turn` 后为**就绪**。
-7. Claude 原生状态为 `idle`：只在没有更高优先级 transcript 或工具信号时判定为**就绪**。
-8. Codex 最近生命周期事件为 `task_started` / `task_complete`：**进行中** / **就绪**。
-9. 会话事件无法判断时，使用文件更新时间兜底。
+4. Claude 最新 `end_turn` 回复以直接问题结束，且之后没有新的人工回复：**等待回复**。
+5. 存在实际任务子进程：**进行中**（忽略 Codex 常驻的 `codex-code-mode-host`）。
+6. 最近扫描窗口中存在没有同 ID 结果的其他工具调用：**等待确认**。
+7. Claude transcript 中最新回合仍有用户请求、thinking 或工具活动：**进行中**；明确 `end_turn` 后为**就绪**。
+8. Claude 原生状态为 `idle`：只在没有更高优先级 transcript 或工具信号时判定为**就绪**。
+9. Codex 最近生命周期事件为 `task_started` / `task_complete`：**进行中** / **就绪**。
+10. 会话事件无法判断时，使用文件更新时间兜底。
 
 工具调用不是简单反向计数，而是按 tool ID 独立配对；窗口内只有结果、对应调用位于窗口外时，不会产生 pending。
 

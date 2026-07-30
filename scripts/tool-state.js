@@ -1,5 +1,9 @@
 'use strict';
 
+function parseEvent(value) {
+  return typeof value === 'string' ? JSON.parse(value) : value;
+}
+
 function getToolEventId(event) {
   if (event.type === 'tool_use') {
     return event.id ?? event.tool_use_id ?? event.call_id;
@@ -53,7 +57,7 @@ function getPendingToolUseKindInLines(lines) {
 
   for (const line of lines) {
     const events = [];
-    collectToolEvents(JSON.parse(line), events);
+    collectToolEvents(parseEvent(line), events);
 
     for (const event of events) {
       if (event.id == null || event.id === '') return null;
@@ -82,10 +86,10 @@ function hasPendingToolUseInLines(lines) {
   return kind == null ? null : kind !== 'none';
 }
 
-function getCodexTaskStateInLines(lines) {
-  let state = null;
+function getCodexTaskStateInLines(lines, initialState = null) {
+  let state = initialState;
   for (const line of lines) {
-    const event = JSON.parse(line);
+    const event = parseEvent(line);
     const payloadType = event.payload?.type;
 
     if (event.type === 'event_msg' && payloadType === 'task_complete') {
@@ -114,10 +118,10 @@ function getCodexTaskStateInLines(lines) {
   return state;
 }
 
-function getClaudeTaskStateInLines(lines) {
-  let state = null;
+function getClaudeTaskStateInLines(lines, initialState = null) {
+  let state = initialState;
   for (const line of lines) {
-    const event = JSON.parse(line);
+    const event = parseEvent(line);
 
     if (event.type === 'system' && event.subtype === 'turn_duration') {
       state = 'ready';
@@ -139,9 +143,43 @@ function getClaudeTaskStateInLines(lines) {
   return state;
 }
 
+function isHumanUserEvent(event) {
+  if (event.type !== 'user') return false;
+  if (event.origin?.kind === 'human' || event.promptSource === 'typed') return true;
+  return typeof event.message?.content === 'string';
+}
+
+function textEndsWithQuestion(text) {
+  return /[?？](?:[\s"'”’）)\]】}。.!！*_`~～]|\p{Extended_Pictographic}|\uFE0F)*$/u.test(
+    String(text || '').trim()
+  );
+}
+
+function getClaudeReplyRequestInLines(lines, initialState = false) {
+  let waitingForReply = initialState;
+  for (const line of lines) {
+    const event = parseEvent(line);
+    if (isHumanUserEvent(event)) {
+      waitingForReply = false;
+      continue;
+    }
+    if (event.type !== 'assistant' || event.message?.stop_reason !== 'end_turn') continue;
+
+    const content = event.message?.content;
+    if (!Array.isArray(content)) continue;
+    const finalText = content
+      .filter(block => block?.type === 'text' && typeof block.text === 'string')
+      .map(block => block.text.trim())
+      .filter(Boolean)
+      .at(-1);
+    if (finalText) waitingForReply = textEndsWithQuestion(finalText);
+  }
+  return waitingForReply;
+}
+
 function getCodexContextUsageInLines(lines) {
   for (let i = lines.length - 1; i >= 0; i--) {
-    const event = JSON.parse(lines[i]);
+    const event = parseEvent(lines[i]);
     if (event.type !== 'event_msg' || event.payload?.type !== 'token_count') continue;
 
     const info = event.payload.info;
@@ -161,6 +199,7 @@ function getCodexContextUsageInLines(lines) {
 }
 
 module.exports = {
+  getClaudeReplyRequestInLines,
   getClaudeTaskStateInLines,
   getCodexContextUsageInLines,
   getCodexTaskStateInLines,

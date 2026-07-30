@@ -16,7 +16,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execFile, execFileSync } = require('child_process');
+const { execFile } = require('child_process');
 const { getClaudeNativeState, getClaudeRuntimeForPid } = require('./claude-context');
 const { DEFAULT_LOCALE, getMessages, getUiStrings } = require('./i18n');
 const { advanceWaitingNotification } = require('./notification-state');
@@ -30,6 +30,7 @@ const {
   getOpenCodeModel,
 } = require('./model-state');
 const {
+  getClaudeReplyRequestInLines,
   getClaudeTaskStateInLines,
   getCodexContextUsageInLines,
   getCodexTaskStateInLines,
@@ -48,6 +49,7 @@ const STATUS_FILE = '/tmp/agent-status.json';
 const STATUS_TEMP_FILE = `${STATUS_FILE}.${process.pid}.tmp`;
 const LOCALE_FILE = '/tmp/agent-statusbar-locale';
 const PROCESS_SNAPSHOT_FILE = '/tmp/agent-statusbar-processes';
+const PROCESS_METADATA_FILE = '/tmp/agent-statusbar-process-metadata';
 const LOCK_FILE = '/tmp/agent-statusbar-monitor.pid';
 const POLL_MS = 2000;               // 轮询间隔
 const WAIT_THRESHOLD_MS = 30000;    // 30s 无活动 → waiting
@@ -129,6 +131,9 @@ function sendNotification(agentName, instanceLabel, reminderStage, state) {
 }
 
 let lastProcessSnapshot = [];
+let lastProcessSnapshotMtime = 0;
+let processMetadataMtime = 0;
+let processMetadata = new Map();
 const PID_SESSION_CACHE = new Map();
 const PID_CWD_CACHE = new Map();
 const SESSION_ANALYSIS_CACHE = new Map();
@@ -166,14 +171,15 @@ function getClaudeSessionProcesses() {
 function getProcessSnapshot() {
   try {
     const stat = fs.statSync(PROCESS_SNAPSHOT_FILE);
-    if (Date.now() - stat.mtimeMs <= 30_000) {
+    if (Date.now() - stat.mtimeMs <= 30_000 && stat.mtimeMs !== lastProcessSnapshotMtime) {
       lastProcessSnapshot = parseProcessSnapshot(fs.readFileSync(PROCESS_SNAPSHOT_FILE, 'utf8'));
+      lastProcessSnapshotMtime = stat.mtimeMs;
     }
   } catch {}
 
   const merged = new Map();
   for (const processInfo of lastProcessSnapshot) {
-    if (isPidRunning(processInfo.pid)) merged.set(processInfo.pid, processInfo);
+    merged.set(processInfo.pid, processInfo);
   }
   for (const processInfo of getClaudeSessionProcesses()) {
     if (!merged.has(processInfo.pid)) merged.set(processInfo.pid, processInfo);
@@ -181,10 +187,30 @@ function getProcessSnapshot() {
   return [...merged.values()];
 }
 
+function refreshProcessMetadata() {
+  try {
+    const stat = fs.statSync(PROCESS_METADATA_FILE);
+    if (stat.mtimeMs === processMetadataMtime) return;
+
+    const next = new Map();
+    for (const line of fs.readFileSync(PROCESS_METADATA_FILE, 'utf8').split('\n')) {
+      const [pidText, kind, value] = line.split('\t', 3);
+      const pid = Number.parseInt(pidText, 10);
+      if (!Number.isInteger(pid) || !value) continue;
+      if (!next.has(pid)) next.set(pid, { cwd: null, files: [] });
+      if (kind === 'cwd') next.get(pid).cwd = value;
+      if (kind === 'file') next.get(pid).files.push(value);
+    }
+    processMetadata = next;
+    processMetadataMtime = stat.mtimeMs;
+  } catch {}
+}
+
 function findProcess(name, processes) {
   const pids = processes
     .filter(processInfo => path.basename(processInfo.command) === name)
-    .map(processInfo => processInfo.pid);
+    .map(processInfo => processInfo.pid)
+    .filter(isPidRunning);
   return pids.length > 0 ? pids : null;
 }
 
@@ -202,14 +228,7 @@ function getSessionFileForPid(pid, agentDef) {
   if (cached && fs.existsSync(cached)) return cached;
 
   try {
-    const out = execFileSync('/usr/sbin/lsof', ['-Fn', '-p', String(pid)], {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 3000,
-    });
-    const files = out.split('\n')
-      .filter(l => l.startsWith('n'))
-      .map(l => l.slice(1));
+    const files = processMetadata.get(pid)?.files || [];
 
     if (agentDef.name === 'Codex') {
       const rolloutFiles = files.filter(f =>
@@ -296,6 +315,7 @@ function determineState(
     nativeState,
     hasActiveChild,
     transcriptState,
+    replyRequested: sessionAnalysis?.replyRequested || false,
   });
   if (resolved === 'waiting_reply') {
     return { state: resolved, label: TEXT.status.waitingReply, emoji: '🟡' };
@@ -345,24 +365,9 @@ function hasActiveChildProcesses(pid, agentName, processes) {
  */
 function getProcessCwd(pid) {
   if (PID_CWD_CACHE.has(pid)) return PID_CWD_CACHE.get(pid);
-  try {
-    const out = execFileSync(
-      '/usr/sbin/lsof',
-      ['-a', '-p', String(pid), '-d', 'cwd', '-Fn'],
-      {
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-        timeout: 3000,
-      }
-    );
-    const cwdLine = out.split('\n').find(l => l.startsWith('n'));
-    if (cwdLine) {
-      const cwd = cwdLine.slice(1);
-      PID_CWD_CACHE.set(pid, cwd);
-      return cwd;
-    }
-  } catch {}
-  return null;
+  const cwd = processMetadata.get(pid)?.cwd || null;
+  if (cwd) PID_CWD_CACHE.set(pid, cwd);
+  return cwd;
 }
 
 /**
@@ -381,9 +386,60 @@ function readLastJsonLines(filePath, count) {
   } finally {
     fs.closeSync(descriptor);
   }
-  let lines = buffer.toString('utf8').split('\n');
-  if (stat.size > bytesToRead) lines = lines.slice(1);
-  return lines.filter(Boolean).slice(-count);
+  const text = buffer.toString('utf8');
+  let end = text.length;
+  while (end > 0 && (text[end - 1] === '\n' || text[end - 1] === '\r')) end--;
+
+  let cursor = end;
+  let linesFound = 0;
+  while (cursor > 0 && linesFound < count) {
+    const newline = text.lastIndexOf('\n', cursor - 1);
+    if (newline < 0) {
+      cursor = 0;
+      break;
+    }
+    cursor = newline;
+    linesFound++;
+  }
+
+  const start = cursor > 0 ? cursor + 1 : 0;
+  const lines = text.slice(start, end).split('\n').filter(Boolean);
+  if (stat.size > bytesToRead && start === 0) lines.shift();
+  return lines.slice(-count);
+}
+
+function readFileRange(filePath, start, length) {
+  if (length <= 0) return '';
+  const buffer = Buffer.alloc(length);
+  const descriptor = fs.openSync(filePath, 'r');
+  try {
+    const bytesRead = fs.readSync(descriptor, buffer, 0, length, start);
+    return buffer.toString('utf8', 0, bytesRead);
+  } finally {
+    fs.closeSync(descriptor);
+  }
+}
+
+function buildSessionAnalysis(events, agentName, previous = null, appendedEvents = events) {
+  return {
+    pendingKind: getPendingToolUseKindInLines(events.slice(-30)),
+    taskState: agentName === 'Claude'
+      ? getClaudeTaskStateInLines(appendedEvents, previous?.taskState || null)
+      : (agentName === 'Codex'
+          ? getCodexTaskStateInLines(appendedEvents, previous?.taskState || null)
+          : null),
+    replyRequested: agentName === 'Claude'
+      ? getClaudeReplyRequestInLines(appendedEvents, previous?.replyRequested || false)
+      : false,
+    contextUsage: agentName === 'Codex'
+      ? getCodexContextUsageInLines(appendedEvents) || previous?.contextUsage || null
+      : null,
+    model: agentName === 'Claude'
+      ? getClaudeModelInLines(appendedEvents) || previous?.model || null
+      : (agentName === 'Codex'
+          ? getCodexModelInLines(appendedEvents) || previous?.model || null
+          : null),
+  };
 }
 
 function analyzeSessionFile(sessionFile, agentName) {
@@ -393,18 +449,31 @@ function analyzeSessionFile(sessionFile, agentName) {
     const cached = SESSION_ANALYSIS_CACHE.get(sessionFile);
     if (cached?.mtimeMs === stat.mtimeMs && cached?.size === stat.size) return cached.analysis;
 
-    const lines = readLastJsonLines(sessionFile, 200);
-    const analysis = {
-      pendingKind: getPendingToolUseKindInLines(lines.slice(-30)),
-      taskState: agentName === 'Claude'
-        ? getClaudeTaskStateInLines(lines)
-        : (agentName === 'Codex' ? getCodexTaskStateInLines(lines) : null),
-      contextUsage: agentName === 'Codex' ? getCodexContextUsageInLines(lines) : null,
-      model: agentName === 'Claude'
-        ? getClaudeModelInLines(lines)
-        : (agentName === 'Codex' ? getCodexModelInLines(lines) : null),
-    };
-    SESSION_ANALYSIS_CACHE.set(sessionFile, { mtimeMs: stat.mtimeMs, size: stat.size, analysis });
+    let events;
+    let appendedEvents;
+    let partial = '';
+    const appendedBytes = cached && stat.size >= cached.size ? stat.size - cached.size : -1;
+    if (cached && appendedBytes >= 0 && appendedBytes <= 2 * 1024 * 1024) {
+      const chunks = `${cached.partial || ''}${readFileRange(sessionFile, cached.size, appendedBytes)}`
+        .split('\n');
+      partial = chunks.pop() || '';
+      appendedEvents = chunks.filter(Boolean).map(JSON.parse);
+      events = [...cached.events, ...appendedEvents].slice(-200);
+    } else {
+      events = readLastJsonLines(sessionFile, 200).map(JSON.parse);
+      appendedEvents = events;
+    }
+
+    const analysis = appendedEvents.length === 0
+      ? cached.analysis
+      : buildSessionAnalysis(events, agentName, cached?.analysis || null, appendedEvents);
+    SESSION_ANALYSIS_CACHE.set(sessionFile, {
+      mtimeMs: stat.mtimeMs,
+      size: stat.size,
+      partial,
+      events,
+      analysis,
+    });
     return analysis;
   } catch {
     return null;
@@ -531,6 +600,7 @@ function getInstances(agentDef, processes) {
 
 function poll() {
   refreshLocale();
+  refreshProcessMetadata();
   const now = Date.now();
   const agents = [];
   const processes = getProcessSnapshot();

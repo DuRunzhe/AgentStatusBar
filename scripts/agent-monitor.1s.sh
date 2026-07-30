@@ -13,7 +13,10 @@ LOCALE_FILE="/tmp/agent-statusbar-locale"
 LOCALE_REFRESH_SEC=60
 PROCESS_SNAPSHOT_FILE="/tmp/agent-statusbar-processes"
 PROCESS_SNAPSHOT_LOCK="/tmp/agent-statusbar-processes.lock"
-PROCESS_REFRESH_SEC=5
+PROCESS_REFRESH_SEC=2
+PROCESS_METADATA_FILE="/tmp/agent-statusbar-process-metadata"
+PROCESS_METADATA_LOCK="/tmp/agent-statusbar-process-metadata.lock"
+PROCESS_METADATA_REFRESH_SEC=30
 
 refresh_locale_cache() {
   local now mtime language_output apple_locale locale line language temp_file
@@ -49,7 +52,7 @@ refresh_locale_cache() {
 refresh_locale_cache
 
 refresh_process_snapshot() {
-  local now mtime lock_mtime temp_file
+  local now mtime lock_mtime
   now=$(date +%s)
   mtime=$(stat -f '%m' "$PROCESS_SNAPSHOT_FILE" 2>/dev/null || echo 0)
   [ $((now - mtime)) -lt "$PROCESS_REFRESH_SEC" ] && return
@@ -61,17 +64,28 @@ refresh_process_snapshot() {
   /bin/mkdir "$PROCESS_SNAPSHOT_LOCK" 2>/dev/null || return
 
   (
-    temp_file="${PROCESS_SNAPSHOT_FILE}.$$"
-    if /bin/ps -axo pid=,ppid=,etime=,comm= > "$temp_file"; then
-      /bin/mv -f "$temp_file" "$PROCESS_SNAPSHOT_FILE"
-    else
-      /bin/rm -f "$temp_file"
-    fi
+    /bin/bash "$PROCESS_SNAPSHOT_PATH" "$PROCESS_SNAPSHOT_FILE"
     /bin/rmdir "$PROCESS_SNAPSHOT_LOCK" 2>/dev/null || true
   ) </dev/null >/dev/null 2>&1 &
 }
 
-refresh_process_snapshot
+refresh_process_metadata() {
+  local now mtime lock_mtime
+  now=$(date +%s)
+  mtime=$(stat -f '%m' "$PROCESS_METADATA_FILE" 2>/dev/null || echo 0)
+  [ $((now - mtime)) -lt "$PROCESS_METADATA_REFRESH_SEC" ] && return
+
+  lock_mtime=$(stat -f '%m' "$PROCESS_METADATA_LOCK" 2>/dev/null || echo 0)
+  if [ "$lock_mtime" -gt 0 ] && [ $((now - lock_mtime)) -ge 60 ]; then
+    /bin/rmdir "$PROCESS_METADATA_LOCK" 2>/dev/null || true
+  fi
+  /bin/mkdir "$PROCESS_METADATA_LOCK" 2>/dev/null || return
+
+  (
+    /bin/bash "$PROCESS_METADATA_PATH" "$PROCESS_SNAPSHOT_FILE" "$PROCESS_METADATA_FILE"
+    /bin/rmdir "$PROCESS_METADATA_LOCK" 2>/dev/null || true
+  ) </dev/null >/dev/null 2>&1 &
+}
 
 # 动态查找 node 路径，兼容 Intel/Apple Silicon
 NODE_CMD=$(command -v node 2>/dev/null || echo "/usr/local/bin/node")
@@ -93,6 +107,11 @@ RESTART_PATH="$SCRIPT_DIR/restart-agent-monitor.sh"
 FOCUS_PATH="$SCRIPT_DIR/focus-agent-session.js"
 I18N_PATH="$SCRIPT_DIR/i18n.js"
 DISPLAY_CONFIG_PATH="$SCRIPT_DIR/display-config.js"
+PROCESS_SNAPSHOT_PATH="$SCRIPT_DIR/write-process-snapshot.sh"
+PROCESS_METADATA_PATH="$SCRIPT_DIR/write-process-metadata.sh"
+
+refresh_process_snapshot
+refresh_process_metadata
 
 if [ ! -f "$STATUS_FILE" ]; then
   DAEMON_NOT_RUNNING=$("$NODE_CMD" "$I18N_PATH" daemonNotRunning 2>/dev/null || echo "Monitor daemon is not running")

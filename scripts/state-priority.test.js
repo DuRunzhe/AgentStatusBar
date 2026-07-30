@@ -41,3 +41,13 @@ test('structured user input remains the highest priority live state', () => {
     transcriptState: 'working',
   }), 'waiting_reply');
 });
+
+test('terminal Claude question overrides idle transcript state', () => {
+  assert.equal(resolveAgentState({
+    alive: true,
+    pendingKind: 'none',
+    nativeState: 'ready',
+    transcriptState: 'ready',
+    replyRequested: true,
+  }), 'waiting_reply');
+});
