@@ -5,17 +5,21 @@ macOS 菜单栏里的 AI Coding Agent 状态监控器。通过 SwiftBar 汇总 C
 ## 显示效果
 
 ```text
-1个进行 · 2个就绪
-├── 🟢 Claude: 就绪 (2h36m) · 63.0% (126k/200k)
-├── 🟢 Codex (src): 就绪 (70h25m) · 33.8% (87k/258k)
-├── 🔵 Codex (AgentStatusBar): 进行中 (1h36m) · 44.6% (115k/258k)
+1个等待确认 · 1个等待回复 · 1个进行中 · 1个就绪
+├── 🟡 Claude (backend): 等待确认 (2h36m) · claude-sonnet-4-5 · 63.0% (126k/200k)
+├── 🟡 Claude (docs): 等待回复 (48m12s) · claude-sonnet-4-5 · 31.5% (63k/200k)
+├── 🔵 Codex (AgentStatusBar): 进行中 (1h36m) · gpt-5.6-sol · 44.6% (115k/258k)
+├── 🟢 Codex (src): 就绪 (70h25m) · gpt-5.6-sol · 33.8% (87k/258k)
 └── [灰色圆点] OpenCode: 已停止
 ```
 
 - 🔵 **进行中**：正在处理任务；顶部蓝色圆点每 2 秒切换中圆/大圆，以 4 秒一轮形成舒缓的心跳提示。
 - 🟢 **就绪**：进程存活，当前没有未完成任务。
-- 🟡 **等待确认**：存在尚未返回结果的工具调用；顶部黄色圆点每秒切换亮度，以 2 秒一轮的呼吸增强紧急提示，并发送分级通知。
+- 🟡 **等待确认**：Agent 正在等待工具执行授权或其他确认。
+- 🟡 **等待回复**：Agent 已提出需要人工回答的问题，包括 Codex `request_user_input`、Claude `AskUserQuestion` 和 Claude 回合末尾的直接问句。
 - 灰色圆点 **已停止**：进程不存在。
+
+“等待确认”和“等待回复”都属于需要人工介入的紧急状态。菜单栏顶部使用黄色圆点，每秒切换一次视觉强度，以 2 秒一轮呼吸，并触发同一套分级系统通知。菜单栏汇总始终按“等待确认 → 等待回复 → 进行中 → 就绪”排序，已停止实例不计入汇总。
 
 点击菜单栏图标展开详情。点击存活的 Agent 行可跳转到对应终端会话；已停止项不可点击。
 
@@ -24,7 +28,7 @@ macOS 菜单栏里的 AI Coding Agent 状态监控器。通过 SwiftBar 汇总 C
 | 功能 | 说明 |
 |---|---|
 | 多 Agent / 多实例 | 同时监控 Claude Code、Codex CLI、OpenCode，并按项目区分多个会话 |
-| 四态显示 | 进行中、就绪、等待确认、已停止 |
+| 五态显示 | 等待确认、等待回复、进行中、就绪、已停止 |
 | 多语言 | 按 macOS 首选语言显示英语、简体中文或繁体中文；语言优先于地区，默认英语 |
 | 上下文占用 | Claude Code 和 Codex 显示百分比及 `已用/窗口` token 数 |
 | 会话模型 | 在 Agent 实例行显示当前会话最新使用的模型名称 |
@@ -32,12 +36,12 @@ macOS 菜单栏里的 AI Coding Agent 状态监控器。通过 SwiftBar 汇总 C
 | 工具调用配对 | 按 tool ID 配对 `tool_use` 与 `tool_result`，避免并行调用和扫描窗口截断误判 |
 | 进程时长 | 显示 Agent 进程持续运行时间 |
 | 会话跳转 | Terminal.app / iTerm2 精确切换标签页，其他受支持终端降级为激活应用 |
-| 等待通知 | 立即通知，持续 60 秒再次提醒，持续 3 分钟发送最后提醒；每次带系统提示音 |
+| 人工介入提醒 | 等待确认或等待回复时立即通知，持续 60 秒再次提醒，持续 3 分钟发送最后提醒；每次带系统提示音 |
 | 自动恢复 | launchd 通过 `KeepAlive` 管理守护进程 |
 
-等待确认提醒仅在实例持续处于等待状态时发送：进入等待时立即通知，60 秒后再次提醒，3 分钟后发送最后提醒。实例恢复为进行中、就绪或已停止后，尚未发送的后续提醒会取消；再次进入等待时重新开始计时。
+提醒仅在实例持续处于同一种人工介入状态时发送：进入等待确认或等待回复时立即通知，60 秒后再次提醒，3 分钟后发送最后提醒。实例恢复为进行中、就绪或已停止后，尚未发送的后续提醒会取消；在等待确认与等待回复之间切换，或离开后再次进入任一等待状态时，会立即开始新一轮提醒。
 
-界面和通知语言读取 macOS 的“语言与地区”设置。系统会依次匹配首选语言，未匹配时按地区选择中文变体，仍无法匹配时使用英语。更改系统语言后，重启监控守护进程即可生效。
+界面和通知语言读取 macOS 的“语言与地区”设置。系统会依次匹配首选语言，未匹配时按地区选择中文变体，仍无法匹配时使用英语。语言缓存每 60 秒刷新，更改系统语言后无需重启，最多约 60 秒自动生效。
 
 ## 环境要求
 
@@ -129,7 +133,7 @@ launchctl enable "gui/$(id -u)/openclaw.agent-monitor"
 launchctl kickstart -k "gui/$(id -u)/openclaw.agent-monitor"
 ```
 
-SwiftBar 每秒刷新一次菜单，守护进程每 2 秒更新一次 `/tmp/agent-status.json`。
+SwiftBar 每秒刷新一次菜单，守护进程每 2 秒更新一次 `/tmp/agent-status.json`。SwiftBar 同时每 2 秒异步生成精简进程快照，并每 30 秒异步刷新 PID 对应的 cwd/session 元数据；较重的 `lsof` 不在守护进程轮询路径中执行。
 
 ## 使用
 
@@ -164,34 +168,34 @@ SwiftBar 每秒刷新一次菜单，守护进程每 2 秒更新一次 `/tmp/agen
 判定顺序如下：
 
 1. 进程不存在：**已停止**。
-2. 存在尚无同 ID 结果的 `request_user_input` 或 `AskUserQuestion`：**等待回复**。
-3. Claude 原生状态为 `busy` / `waiting`：分别判定为**进行中** / **等待确认**。
-4. Claude 最新 `end_turn` 回复以直接问题结束，且之后没有新的人工回复：**等待回复**。
+2. 存在尚无同 ID 结果的 Codex `request_user_input` 或 Claude `AskUserQuestion`：**等待回复**。
+3. Claude 原生状态为 `waiting`：**等待确认**；原生状态为 `busy` / `working` / `running`：**进行中**。
+4. Claude 最新 `end_turn` 回复以直接问句结束，且之后没有新的人工消息：**等待回复**。
 5. 存在实际任务子进程：**进行中**（忽略 Codex 常驻的 `codex-code-mode-host`）。
 6. 最近扫描窗口中存在没有同 ID 结果的其他工具调用：**等待确认**。
-7. Claude transcript 中最新回合仍有用户请求、thinking 或工具活动：**进行中**；明确 `end_turn` 后为**就绪**。
-8. Claude 原生状态为 `idle`：只在没有更高优先级 transcript 或工具信号时判定为**就绪**。
-9. Codex 最近生命周期事件为 `task_started` / `task_complete`：**进行中** / **就绪**。
-10. 会话事件无法判断时，使用文件更新时间兜底。
+7. transcript 中有更晚的任务活动：**进行中**。Claude 的 `turn_duration` / `end_turn` 和 Codex 的 `task_complete` 将任务置为**就绪**；Codex 的 `task_started` 将任务置为**进行中**。
+8. Claude 原生状态为 `idle` / `ready`：**就绪**。
+9. 会话事件无法判断时，使用文件更新时间兜底：最近 30 秒有写入视为**进行中**，否则为**就绪**。
 
-工具调用不是简单反向计数，而是按 tool ID 独立配对；窗口内只有结果、对应调用位于窗口外时，不会产生 pending。
+工具调用不是简单反向计数，而是按 tool ID 独立配对；窗口内只有结果、对应调用位于窗口外时，不会产生 pending。transcript 采用增量读取和事件状态累积，只解析新增内容，避免会话变长后拖慢 Codex/Claude 状态更新。
 
 ## 架构
 
 ```text
-Claude statusline ──> /tmp/agent-statusbar-claude-context/*.json ──┐
-Codex rollout ──────────────────────────────────────────────────────┤
-OpenCode storage / process info ────────────────────────────────────┤
-                                                                    v
-                                                        agent-monitor.js
-                                                        每 2 秒聚合状态
-                                                                    |
-                                                                    v
-                                                        /tmp/agent-status.json
-                                                                    |
-                                                                    v
-                                                        agent-monitor.1s.sh
-                                                        SwiftBar 每秒渲染
+ps ──> 精简 Agent/直属子进程快照（2 秒）────────────────────────────┐
+lsof ──> PID cwd/session 元数据（30 秒，异步）──────────────────────┤
+Claude sessions/statusline/transcript ──────────────────────────────┤
+Codex rollout / OpenCode storage ────────────────────────────────────┤
+                                                                     v
+                                                         agent-monitor.js
+                                                         每 2 秒增量聚合
+                                                                     |
+                                                                     v
+                                                         /tmp/agent-status.json
+                                                                     |
+                                                                     v
+                                                         agent-monitor.1s.sh
+                                                         SwiftBar 每秒渲染
 
 点击 Agent 行 ──> focus-agent-session.js ──> TTY ──> 终端窗口/应用
 ```
