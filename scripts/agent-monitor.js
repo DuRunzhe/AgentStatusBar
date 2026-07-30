@@ -145,8 +145,15 @@ function getFileMtime(filePath) {
  *   ⚪ stopped  — 进程已退出
  *
  * 判定策略：子进程检测优先（pgrep -P），辅以 session 文件 mtime 时间窗
+ *   🟡 waiting  — tool_use pending → 在等你批准工具执行
+ *   ⚪ stopped  — 进程已退出
+ *
+ * 判定策略：
+ *   一级: 子进程检测 → 进行中
+ *   二级: 读 transcript 最后事件 → tool_use=等待确认, tool_result=就绪
+ *   三级: mtime 时间窗(仅当文件无法判断时兜底)
  */
-function determineState(pids, lastEventTimeMs, now) {
+function determineState(pids, lastEventTimeMs, now, sessionFile) {
   const alive = pids && pids.length > 0;
   if (!alive) return { state: 'stopped', label: '已停止', emoji: '⚪' };
 
@@ -155,12 +162,18 @@ function determineState(pids, lastEventTimeMs, now) {
     if (hasChildProcesses(pid)) return { state: 'working', label: '进行中', emoji: '🔵' };
   }
 
-  // 无子进程 → agent 空闲。用 mtime 时间窗区分
-  if (!lastEventTimeMs) return { state: 'ready', label: '就绪', emoji: '🟢' };
+  // 二级信号：检查 session 文件最后事件
+  // tool_use = agent 请求用工具但未执行 → 等待用户批准
+  if (sessionFile) {
+    const pending = hasPendingToolUse(sessionFile);
+    if (pending === true) return { state: 'waiting', label: '等待确认', emoji: '🟡' };
+    if (pending === false) return { state: 'ready', label: '就绪', emoji: '🟢' };
+  }
 
+  // 三级信号：文件判断无结果 → 用 mtime 兜底
+  if (!lastEventTimeMs) return { state: 'ready', label: '就绪', emoji: '🟢' };
   const age = now - lastEventTimeMs;
   if (age < WAIT_THRESHOLD_MS) return { state: 'working', label: '进行中', emoji: '🔵' };
-  if (age < STALE_THRESHOLD_MS) return { state: 'waiting', label: '等待确认', emoji: '🟡' };
   return { state: 'ready', label: '就绪', emoji: '🟢' };
 }
 
@@ -222,6 +235,29 @@ function getProcessCwd(pid) {
   return null;
 }
 
+/**
+ * 检查 session 文件最后一行是否为待定 tool_use
+ * Claude 工作流: 用户发消息 → agent 决定用工具 → 写入 tool_use → 问用户确认
+ * — tool_use 是最后事件且无后续 tool_result → agent 在等你的批准
+ */
+function hasPendingToolUse(sessionFile) {
+  try {
+    if (!sessionFile || !fs.existsSync(sessionFile)) return null;
+    const out = execSync(`tail -1 "${sessionFile}" 2>/dev/null`, {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 2000,
+    }).trim();
+    if (!out) return null;
+    const event = JSON.parse(out);
+    if (event.type === 'tool_use') return true;      // 请求工具但未执行 → 等待确认
+    if (event.type === 'tool_result') return false;    // 工具已执行 → 就绪
+    return null; // user/其他 → 无法判断
+  } catch {
+    return null;
+  }
+}
+
 function formatLastActivity(ms) {
   if (ms == null) return '';
   const sec = Math.floor(ms / 1000);
@@ -239,7 +275,7 @@ function getInstances(agentDef) {
 
   // 无进程 → ⚪ 已停止
   if (!pids || pids.length === 0) {
-    const status = determineState(null, 0, now);
+    const status = determineState(null, 0, now, null);
     return [{
       ...status,
       label: agentDef.name,
@@ -291,7 +327,7 @@ function getInstances(agentDef) {
       projectLabel = `${agentDef.name} #${idx}`;
     }
 
-    const status = determineState(group.pids, mtime, now);
+    const status = determineState(group.pids, mtime, now, group.sessionFile);
     return {
       ...status,
       label: projectLabel,
