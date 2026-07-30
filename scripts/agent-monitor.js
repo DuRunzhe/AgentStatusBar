@@ -156,12 +156,12 @@ function determineState(pids, lastEventTimeMs, now) {
   }
 
   // 无子进程 → agent 空闲。用 mtime 时间窗区分
-  if (!lastEventTimeMs) return { state: 'ready', label: '可交互', emoji: '🟢' };
+  if (!lastEventTimeMs) return { state: 'ready', label: '就绪', emoji: '🟢' };
 
   const age = now - lastEventTimeMs;
   if (age < WAIT_THRESHOLD_MS) return { state: 'working', label: '进行中', emoji: '🔵' };
   if (age < STALE_THRESHOLD_MS) return { state: 'waiting', label: '等待确认', emoji: '🟡' };
-  return { state: 'ready', label: '可交互', emoji: '🟢' };
+  return { state: 'ready', label: '就绪', emoji: '🟢' };
 }
 
 function getPidAge(pid) {
@@ -339,15 +339,17 @@ function poll() {
     for (const inst of agent.instances) {
       let line = `${inst.emoji} ${inst.label}: ${inst.status_label}`;
       if (inst.pids.length > 0) {
-        line += ` (PID ${inst.pids.join(',')}`;
-        const uptime = formatUptime(inst.uptime_sec);
-        if (uptime) line += `, ${uptime}`;
-        line += ')';
+        line += ` (PID ${inst.pids.join(',')})`;
       }
-      if (inst.last_activity_ms_ago != null && inst.state === 'waiting') {
-        line += ` ${formatLastActivity(inst.last_activity_ms_ago)}`;
-      } else if (inst.last_activity_ms_ago != null && inst.state === 'ready') {
-        line += ` ${formatLastActivity(inst.last_activity_ms_ago)}`;
+      // 计时：使用 session 文件 mtime（最后活动时间），不用 ps -o etime（进程总寿命不准）
+      if (inst.last_activity_ms_ago != null) {
+        if (inst.state === 'waiting') {
+          line += ` ${formatLastActivity(inst.last_activity_ms_ago)}`;
+        } else if (inst.state === 'ready') {
+          line += ` ${formatLastActivity(inst.last_activity_ms_ago)}`;
+        } else if (inst.state === 'working' && inst.last_activity_ms_ago < WAIT_THRESHOLD_MS) {
+          line += ` ${formatLastActivity(inst.last_activity_ms_ago)}`;
+        }
       }
       details.push(line);
     }
