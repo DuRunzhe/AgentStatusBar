@@ -18,6 +18,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync, execSync } = require('child_process');
 const { getClaudeRuntimeForPid } = require('./claude-context');
+const { detectLocale, getMessages, getUiStrings } = require('./i18n');
 const { advanceWaitingNotification } = require('./notification-state');
 const {
   getCodexContextUsageInLines,
@@ -37,6 +38,8 @@ const STATUS_FILE = '/tmp/agent-status.json';
 const POLL_MS = 2000;               // 轮询间隔
 const WAIT_THRESHOLD_MS = 30000;    // 30s 无活动 → waiting
 const STALE_THRESHOLD_MS = 120000;  // 120s 无活动 → stale
+const LOCALE = detectLocale();
+const TEXT = getMessages(LOCALE);
 
 // Agent definitions
 const AGENTS = [
@@ -79,19 +82,11 @@ const INSTANCE_TRACKER = {};
  */
 function sendNotification(agentName, instanceLabel, reminderStage) {
   const target = instanceLabel === agentName ? agentName : instanceLabel;
-  const messages = [
-    `${target} 已进入 🟡 等待确认`,
-    `${target} 仍在等待确认（已等待 1 分钟）`,
-    `${target} 已等待确认 3 分钟，请尽快处理`,
-  ];
-  const subtitles = [
-    `${agentName} 等待确认`,
-    `${agentName} 仍在等待`,
-    `${agentName} 最后提醒`,
-  ];
   const escapeAppleScript = value => value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-  const msg = messages[reminderStage] || messages[0];
-  const subtitle = subtitles[reminderStage] || subtitles[0];
+  const message = TEXT.notificationMessages[reminderStage] || TEXT.notificationMessages[0];
+  const subtitleText = TEXT.notificationSubtitles[reminderStage] || TEXT.notificationSubtitles[0];
+  const msg = message(target);
+  const subtitle = subtitleText(agentName);
   const script = `display notification "${escapeAppleScript(msg)}" with title "Agent Monitor" subtitle "${escapeAppleScript(subtitle)}" sound name "default"`;
   try {
     execFileSync(
@@ -194,12 +189,12 @@ function getFileMtime(filePath) {
  */
 function determineState(pids, lastEventTimeMs, now, sessionFile, agentName) {
   const alive = pids && pids.length > 0;
-  if (!alive) return { state: 'stopped', label: '已停止', emoji: '⚪' };
+  if (!alive) return { state: 'stopped', label: TEXT.status.stopped, emoji: '⚪' };
 
   // 一级信号：是否有实际任务子进程（忽略 agent 自身的常驻辅助进程）
   for (const pid of pids) {
     if (hasActiveChildProcesses(pid, agentName)) {
-      return { state: 'working', label: '进行中', emoji: '🔵' };
+      return { state: 'working', label: TEXT.status.working, emoji: '🔵' };
     }
   }
 
@@ -207,20 +202,20 @@ function determineState(pids, lastEventTimeMs, now, sessionFile, agentName) {
   // tool_use = agent 请求用工具但未执行 → 等待用户批准
   if (sessionFile) {
     const pending = hasPendingToolUse(sessionFile);
-    if (pending === true) return { state: 'waiting', label: '等待确认', emoji: '🟡' };
+    if (pending === true) return { state: 'waiting', label: TEXT.status.waiting, emoji: '🟡' };
     if (agentName === 'Codex') {
       const taskState = getCodexTaskState(sessionFile);
-      if (taskState === 'working') return { state: 'working', label: '进行中', emoji: '🔵' };
-      if (taskState === 'ready') return { state: 'ready', label: '就绪', emoji: '🟢' };
+      if (taskState === 'working') return { state: 'working', label: TEXT.status.working, emoji: '🔵' };
+      if (taskState === 'ready') return { state: 'ready', label: TEXT.status.ready, emoji: '🟢' };
     }
-    if (pending === false) return { state: 'ready', label: '就绪', emoji: '🟢' };
+    if (pending === false) return { state: 'ready', label: TEXT.status.ready, emoji: '🟢' };
   }
 
   // 三级信号：文件判断无结果 → 用 mtime 兜底
-  if (!lastEventTimeMs) return { state: 'ready', label: '就绪', emoji: '🟢' };
+  if (!lastEventTimeMs) return { state: 'ready', label: TEXT.status.ready, emoji: '🟢' };
   const age = now - lastEventTimeMs;
-  if (age < WAIT_THRESHOLD_MS) return { state: 'working', label: '进行中', emoji: '🔵' };
-  return { state: 'ready', label: '就绪', emoji: '🟢' };
+  if (age < WAIT_THRESHOLD_MS) return { state: 'working', label: TEXT.status.working, emoji: '🔵' };
+  return { state: 'ready', label: TEXT.status.ready, emoji: '🟢' };
 }
 
 function getPidAge(pid) {
@@ -345,8 +340,8 @@ function getCodexContextUsage(sessionFile) {
 function formatLastActivity(ms) {
   if (ms == null) return '';
   const sec = Math.floor(ms / 1000);
-  if (sec < 60) return `最后活动 ${sec}s 前`;
-  return `最后活动 ${Math.floor(sec / 60)}m 前`;
+  const value = sec < 60 ? `${sec}s` : `${Math.floor(sec / 60)}m`;
+  return TEXT.lastActivity(value);
 }
 
 // ============================================================
@@ -454,12 +449,12 @@ function poll() {
   const allReady = agents.flatMap(a => a.instances).filter(i => i.state === 'ready');
   const allWaiting = agents.flatMap(a => a.instances).filter(i => i.state === 'waiting');
 
-  let summaryEmoji = '⚪', summaryLabel = '无活动';
+  let summaryEmoji = '⚪', summaryLabel = TEXT.noActivity;
   if (allWorking.length > 0 || allReady.length > 0 || allWaiting.length > 0) {
     const parts = [];
-    if (allWorking.length > 0) parts.push(`${allWorking.length}个进行`);
-    if (allReady.length > 0) parts.push(`${allReady.length}个就绪`);
-    if (allWaiting.length > 0) parts.push(`${allWaiting.length}个等待`);
+    if (allWorking.length > 0) parts.push(TEXT.countWorking(allWorking.length));
+    if (allReady.length > 0) parts.push(TEXT.countReady(allReady.length));
+    if (allWaiting.length > 0) parts.push(TEXT.countWaiting(allWaiting.length));
     summaryLabel = parts.join(' · ');
     summaryEmoji = allWaiting.length > 0 ? '🟡' : (allWorking.length > 0 ? '🔵' : '🟢');
   }
@@ -506,7 +501,9 @@ function poll() {
   // ── 输出 JSON ──
   const output = {
     timestamp: new Date().toISOString(),
+    locale: LOCALE,
     summary: `${summaryEmoji} ${summaryLabel}`,
+    ui: getUiStrings(LOCALE),
     detail: details,
     agents,
     multiSession: true,

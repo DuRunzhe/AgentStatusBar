@@ -2,7 +2,7 @@
 # <xbar.title>Agent Monitor</xbar.title>
 # <xbar.version>v0.2.0</xbar.version>
 # <xbar.author>bitwasher</xbar.author>
-# <xbar.desc>AI Coding Agent 运行状态指示器，支持多实例追踪 (Claude/Codex/OpenCode)</xbar.desc>
+# <xbar.desc>AI Coding Agent status monitor with multi-session tracking</xbar.desc>
 # <xbar.dependencies>bash,python3</xbar.dependencies>
 # <swiftbar.hideRunInTerminal>true</swiftbar.hideRunInTerminal>
 # <swiftbar.hideLastUpdated>true</swiftbar.hideLastUpdated>
@@ -27,12 +27,15 @@ resolve_symlink() {
 SCRIPT_DIR="$(resolve_symlink "$0")"
 DAEMON_PATH="$SCRIPT_DIR/agent-monitor.js"
 FOCUS_PATH="$SCRIPT_DIR/focus-agent-session.js"
+I18N_PATH="$SCRIPT_DIR/i18n.js"
 
 if [ ! -f "$STATUS_FILE" ]; then
+  DAEMON_NOT_RUNNING=$("$NODE_CMD" "$I18N_PATH" daemonNotRunning 2>/dev/null || echo "Monitor daemon is not running")
+  START_DAEMON=$("$NODE_CMD" "$I18N_PATH" startDaemon 2>/dev/null || echo "Start monitor daemon")
   echo "⏳ Agent Monitor"
   echo "---"
-  echo "监控守护进程未启动 | color=red"
-  echo "启动守护进程 | bash=$NODE_CMD param0=$DAEMON_PATH terminal=false"
+  echo "$DAEMON_NOT_RUNNING | color=red"
+  echo "$START_DAEMON | bash=$NODE_CMD param0=$DAEMON_PATH terminal=false"
   exit 0
 fi
 
@@ -89,15 +92,20 @@ def format_tokens(value):
 
 data = json.load(sys.stdin)
 agents = data.get('agents', [])
+ui = data.get('ui', {})
 focus_path = sys.argv[1]
 node_cmd = sys.argv[2]
+daemon_path = sys.argv[3]
+refresh_time = sys.argv[4]
+stopped_text = ui.get('statusStopped', 'Stopped')
+unknown_text = ui.get('statusUnknown', 'Unknown')
 
 for a in agents:
     name = a['name']
     instances = a.get('instances', [])
 
     if not instances:
-        print(f'{name}: 已停止 | sfimage=circle.fill sfcolor=#8E8E93 color=#8E8E93')
+        print(f'{name}: {stopped_text} | sfimage=circle.fill sfcolor=#8E8E93 color=#8E8E93')
         continue
 
     for inst in instances:
@@ -105,7 +113,7 @@ for a in agents:
         label = inst.get('label', name)
         state = inst.get('state', 'stopped')
         pids = inst.get('pids', [])
-        label_text = inst.get('status_label', '未知')
+        label_text = inst.get('status_label', unknown_text)
 
         if state == 'stopped':
             line = f'{label}: {label_text}'
@@ -137,9 +145,9 @@ for a in agents:
             line += f' | bash={node_cmd} param0={focus_path} param1={pids[0]} terminal=false'
 
         print(line)
-" "$FOCUS_PATH" "$NODE_CMD" 2>/dev/null
 
-echo "---"
-echo "上次刷新: $(date '+%H:%M:%S') | color=gray size=10"
-echo "立即刷新 | refresh=true"
-echo "重启守护进程 | bash=$NODE_CMD param0=$DAEMON_PATH terminal=false"
+print('---')
+print(f\"{ui.get('lastUpdated', 'Last updated')}: {refresh_time} | color=gray size=10\")
+print(f\"{ui.get('refreshNow', 'Refresh now')} | refresh=true\")
+print(f\"{ui.get('restartDaemon', 'Restart monitor daemon')} | bash={node_cmd} param0={daemon_path} terminal=false\")
+" "$FOCUS_PATH" "$NODE_CMD" "$DAEMON_PATH" "$(date '+%H:%M:%S')" 2>/dev/null
