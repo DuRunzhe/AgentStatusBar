@@ -20,6 +20,7 @@ const { execFileSync, execSync } = require('child_process');
 const { getClaudeNativeState, getClaudeRuntimeForPid } = require('./claude-context');
 const { detectLocale, getMessages, getUiStrings } = require('./i18n');
 const { advanceWaitingNotification } = require('./notification-state');
+const { readDisplayConfig } = require('./display-config');
 const {
   getClaudeModelInLines,
   getCodexModelInLines,
@@ -551,6 +552,7 @@ function poll() {
     locale: LOCALE,
     summary: `${summaryEmoji} ${summaryLabel}`,
     ui: getUiStrings(LOCALE),
+    display_config: readDisplayConfig(),
     detail: details,
     agents,
     multiSession: true,

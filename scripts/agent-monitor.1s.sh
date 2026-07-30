@@ -28,6 +28,7 @@ SCRIPT_DIR="$(resolve_symlink "$0")"
 DAEMON_PATH="$SCRIPT_DIR/agent-monitor.js"
 FOCUS_PATH="$SCRIPT_DIR/focus-agent-session.js"
 I18N_PATH="$SCRIPT_DIR/i18n.js"
+DISPLAY_CONFIG_PATH="$SCRIPT_DIR/display-config.js"
 
 if [ ! -f "$STATUS_FILE" ]; then
   DAEMON_NOT_RUNNING=$("$NODE_CMD" "$I18N_PATH" daemonNotRunning 2>/dev/null || echo "Monitor daemon is not running")
@@ -97,8 +98,13 @@ focus_path = sys.argv[1]
 node_cmd = sys.argv[2]
 daemon_path = sys.argv[3]
 refresh_time = sys.argv[4]
+display_config_path = sys.argv[5]
 stopped_text = ui.get('statusStopped', 'Stopped')
 unknown_text = ui.get('statusUnknown', 'Unknown')
+display_config = data.get('display_config', {})
+
+def is_visible(key):
+    return display_config.get(key, True) is not False
 
 for a in agents:
     name = a['name']
@@ -122,7 +128,7 @@ for a in agents:
 
         # Append uptime
         uptime = inst.get('uptime_sec', 0)
-        if pids and uptime > 0:
+        if is_visible('duration') and pids and uptime > 0:
             if uptime < 60:
                 line += f' ({uptime}s)'
             elif uptime < 3600:
@@ -134,14 +140,25 @@ for a in agents:
 
         context = inst.get('context_usage')
         model = inst.get('model')
-        if model:
+        if is_visible('model') and model:
             line += f' · {model}'
 
         if context:
             used = format_tokens(context['used_tokens'])
             window = format_tokens(context['window_tokens'])
             percent = context['percent']
-            line += f' · {percent:.1f}% ({used}/{window})'
+            show_percent = is_visible('contextPercent')
+            show_used = is_visible('contextUsed')
+            show_total = is_visible('contextTotal')
+            if show_percent:
+                line += f' · {percent:.1f}%'
+            if show_used and show_total:
+                separator = ' ' if show_percent else ' · '
+                line += f'{separator}({used}/{window})'
+            elif show_used:
+                line += f\" · {ui.get('contextUsed', 'Used')} {used}\"
+            elif show_total:
+                line += f\" · {ui.get('contextTotal', 'Total')} {window}\"
 
         if state == 'stopped':
             line += ' | sfimage=circle.fill sfcolor=#8E8E93 color=#8E8E93'
@@ -151,7 +168,21 @@ for a in agents:
         print(line)
 
 print('---')
+print(f\"{ui.get('settings', 'Settings')} | sfimage=gearshape\")
+print(f\"--{ui.get('displayConfig', 'Display options')} | sfimage=slider.horizontal.3\")
+setting_items = [
+    ('duration', 'showDuration', 'Duration'),
+    ('model', 'showModel', 'Model'),
+    ('contextPercent', 'showContextPercent', 'Context usage percentage'),
+    ('contextUsed', 'showContextUsed', 'Context used'),
+    ('contextTotal', 'showContextTotal', 'Total context'),
+]
+for key, label_key, fallback in setting_items:
+    icon = 'checkmark.square.fill' if is_visible(key) else 'square'
+    label = ui.get(label_key, fallback)
+    print(f'----{label} | sfimage={icon} bash={node_cmd} param0={display_config_path} param1=toggle param2={key} terminal=false refresh=true')
+print('---')
 print(f\"{ui.get('lastUpdated', 'Last updated')}: {refresh_time} | color=gray size=10\")
 print(f\"{ui.get('refreshNow', 'Refresh now')} | refresh=true\")
 print(f\"{ui.get('restartDaemon', 'Restart monitor daemon')} | bash={node_cmd} param0={daemon_path} terminal=false\")
-" "$FOCUS_PATH" "$NODE_CMD" "$DAEMON_PATH" "$(date '+%H:%M:%S')" 2>/dev/null
+" "$FOCUS_PATH" "$NODE_CMD" "$DAEMON_PATH" "$(date '+%H:%M:%S')" "$DISPLAY_CONFIG_PATH" 2>/dev/null
