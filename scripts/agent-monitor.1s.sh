@@ -26,6 +26,7 @@ resolve_symlink() {
 }
 SCRIPT_DIR="$(resolve_symlink "$0")"
 DAEMON_PATH="$SCRIPT_DIR/agent-monitor.js"
+RESTART_PATH="$SCRIPT_DIR/restart-agent-monitor.sh"
 FOCUS_PATH="$SCRIPT_DIR/focus-agent-session.js"
 I18N_PATH="$SCRIPT_DIR/i18n.js"
 DISPLAY_CONFIG_PATH="$SCRIPT_DIR/display-config.js"
@@ -96,7 +97,7 @@ agents = data.get('agents', [])
 ui = data.get('ui', {})
 focus_path = sys.argv[1]
 node_cmd = sys.argv[2]
-daemon_path = sys.argv[3]
+restart_path = sys.argv[3]
 refresh_time = sys.argv[4]
 display_config_path = sys.argv[5]
 stopped_text = ui.get('statusStopped', 'Stopped')
@@ -178,11 +179,11 @@ setting_items = [
     ('contextTotal', 'showContextTotal', 'Total context'),
 ]
 for key, label_key, fallback in setting_items:
-    icon = 'checkmark.square.fill' if is_visible(key) else 'square'
+    checked = ' checked=true' if is_visible(key) else ''
     label = ui.get(label_key, fallback)
-    print(f'----{label} | sfimage={icon} bash={node_cmd} param0={display_config_path} param1=toggle param2={key} terminal=false refresh=true')
+    print(f'----{label} | bash={node_cmd} param0={display_config_path} param1=toggle param2={key} terminal=false refresh=true{checked}')
 print('---')
 print(f\"{ui.get('lastUpdated', 'Last updated')}: {refresh_time} | color=gray size=10\")
 print(f\"{ui.get('refreshNow', 'Refresh now')} | refresh=true\")
-print(f\"{ui.get('restartDaemon', 'Restart monitor daemon')} | bash={node_cmd} param0={daemon_path} terminal=false\")
-" "$FOCUS_PATH" "$NODE_CMD" "$DAEMON_PATH" "$(date '+%H:%M:%S')" "$DISPLAY_CONFIG_PATH" 2>/dev/null
+print(f\"{ui.get('restartDaemon', 'Restart monitor daemon')} | bash=/bin/bash param0={restart_path} terminal=false refresh=true\")
+" "$FOCUS_PATH" "$NODE_CMD" "$RESTART_PATH" "$(date '+%H:%M:%S')" "$DISPLAY_CONFIG_PATH" 2>/dev/null

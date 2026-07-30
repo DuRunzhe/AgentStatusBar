@@ -21,6 +21,7 @@ const { getClaudeNativeState, getClaudeRuntimeForPid } = require('./claude-conte
 const { detectLocale, getMessages, getUiStrings } = require('./i18n');
 const { advanceWaitingNotification } = require('./notification-state');
 const { readDisplayConfig } = require('./display-config');
+const { acquireProcessLock } = require('./process-lock');
 const {
   getClaudeModelInLines,
   getCodexModelInLines,
@@ -41,11 +42,19 @@ const {
 // Configuration
 // ============================================================
 const STATUS_FILE = '/tmp/agent-status.json';
+const LOCK_FILE = '/tmp/agent-statusbar-monitor.pid';
 const POLL_MS = 2000;               // 轮询间隔
 const WAIT_THRESHOLD_MS = 30000;    // 30s 无活动 → waiting
 const STALE_THRESHOLD_MS = 120000;  // 120s 无活动 → stale
 const LOCALE = detectLocale();
 const TEXT = getMessages(LOCALE);
+
+const releaseProcessLock = acquireProcessLock(LOCK_FILE);
+if (!releaseProcessLock) {
+  console.error('agent-monitor is already running');
+  process.exit(0);
+}
+process.on('exit', releaseProcessLock);
 
 // Agent definitions
 const AGENTS = [
