@@ -26,6 +26,7 @@ resolve_symlink() {
 }
 SCRIPT_DIR="$(resolve_symlink "$0")"
 DAEMON_PATH="$SCRIPT_DIR/agent-monitor.js"
+FOCUS_PATH="$SCRIPT_DIR/focus-agent-session.js"
 
 if [ ! -f "$STATUS_FILE" ]; then
   echo "⏳ Agent Monitor"
@@ -76,6 +77,8 @@ def format_tokens(value):
 
 data = json.load(sys.stdin)
 agents = data.get('agents', [])
+focus_path = sys.argv[1]
+node_cmd = sys.argv[2]
 
 for a in agents:
     name = a['name']
@@ -118,9 +121,11 @@ for a in agents:
 
         if state == 'stopped':
             line += ' | sfimage=circle.fill sfcolor=#8E8E93 color=#8E8E93'
+        elif pids:
+            line += f' | bash={node_cmd} param0={focus_path} param1={pids[0]} terminal=false'
 
         print(line)
-" 2>/dev/null
+" "$FOCUS_PATH" "$NODE_CMD" 2>/dev/null
 
 echo "---"
 echo "上次刷新: $(date '+%H:%M:%S') | color=gray size=10"

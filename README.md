@@ -143,6 +143,7 @@ launchctl load ~/Library/LaunchAgents/openclaw.agent-monitor.plist
 | **四态显示** | 🔵 进行中 / 🟢 就绪 / 🟡 等待确认 / 灰色已停止 |
 | **菜单栏汇总** | 菜单栏显示汇总状态（如 `🟢 2个运行 · 1个等待`） |
 | **下拉菜单详情** | 点击图标展示每个 agent 的详细状态 |
+| **会话窗口跳转** | 点击运行中的 Agent 菜单项，跳转到对应终端窗口或应用 |
 | **手动刷新** | 下拉菜单中一键刷新 |
 | **守护进程自动恢复** | launchd KeepAlive 确保进程崩溃后自动重启 |
 | **2s 轮询刷新** | 守护进程每 2 秒检测一次，菜单栏每 1 秒读取最新状态 |
@@ -184,6 +185,8 @@ launchctl load ~/Library/LaunchAgents/openclaw.agent-monitor.plist
 5. 无法读取事件时，使用 session 文件更新时间兜底
 
 Claude Code 的 PID 与会话通过 `~/.claude/sessions/<PID>.json` 配对。statusline 采集器将 Claude Code 原生提供的上下文窗口大小和使用率写入 `/tmp/agent-statusbar-claude-context/`，不依赖模型名称硬编码。
+
+运行中的 Agent 菜单项通过 PID 定位 TTY。Terminal.app 和 iTerm2 支持精确切换到对应标签页；Warp、VS Code、Cursor、Windsurf、kitty 和 Alacritty 在无法精确定位标签页时会激活对应应用。已停止实例不会触发跳转。
 
 ---
 
