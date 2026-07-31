@@ -261,6 +261,7 @@ notification_color = '#34C759' if notifications_enabled else '#8E8E93'
 print(f\"--{ui.get('notifications', 'Notifications')} | sfimage=bell\")
 print(f\"----{notification_action} | bash={node_cmd} param0={notification_settings_path} param1=toggle terminal=false refresh=true sfimage={notification_icon} sfcolor={notification_color}\")
 print(f\"----{ui.get('openNotificationSettings', 'Open System Notification Settings')} | bash={node_cmd} param0={notification_settings_path} param1=open-settings terminal=false sfimage=gearshape\")
+print(f\"----{ui.get('notificationSettingsApp', 'App shown in Notifications: terminal-notifier')} | sfimage=app.badge disabled=true\")
 print(f\"--{ui.get('displayConfig', 'Display options')} | sfimage=slider.horizontal.3\")
 setting_items = [
     ('duration', 'showDuration', 'Duration'),
