@@ -572,6 +572,7 @@ function getInstances(agentDef, processes) {
         || claudeRuntime?.model
         || null;
     } else if (agentDef.name === 'OpenCode') {
+      contextUsage = openCodeRuntime?.contextUsage || null;
       model = openCodeRuntime?.model
         || (group.sessionFile
           ? getOpenCodeModel(group.sessionFile, path.join(agentDef.sessionDir, 'storage'))

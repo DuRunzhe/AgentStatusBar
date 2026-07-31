@@ -1,10 +1,12 @@
 'use strict';
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
 const DEFAULT_SQLITE = '/usr/bin/sqlite3';
+const DEFAULT_MODEL_CATALOG = path.join(os.homedir(), '.cache', 'opencode', 'models.json');
 const RUNTIME_CACHE = new Map();
 
 function normalizeText(value) {
@@ -23,14 +25,38 @@ function parseJson(value) {
   }
 }
 
-function getModelName(sessionModel, messageData) {
+function getModelIdentity(sessionModel, messageData) {
   const session = parseJson(sessionModel);
   const message = parseJson(messageData);
-  const model = message?.model || session || message;
+  const messageModel = message?.model
+    || (message?.modelID != null || message?.id != null ? message : null);
+  const model = messageModel || session;
   const modelId = normalizeText(model?.modelID ?? model?.id);
-  if (!modelId) return null;
+  if (!modelId) return { providerId: null, modelId: null };
   const providerId = normalizeText(model?.providerID);
+  return { providerId, modelId };
+}
+
+function getModelName(sessionModel, messageData) {
+  const { providerId, modelId } = getModelIdentity(sessionModel, messageData);
+  if (!modelId) return null;
   return normalizeText(providerId ? `${providerId}/${modelId}` : modelId);
+}
+
+function getContextUsage(messageData, modelCatalog, sessionModel = null) {
+  const message = parseJson(messageData);
+  const usedTokens = Number(message?.tokens?.total);
+  const { providerId, modelId } = getModelIdentity(sessionModel, messageData);
+  const windowTokens = Number(modelCatalog?.[providerId]?.models?.[modelId]?.limit?.context);
+  if (!Number.isFinite(usedTokens) || usedTokens < 0
+      || !Number.isFinite(windowTokens) || windowTokens <= 0) {
+    return null;
+  }
+  return {
+    used_tokens: usedTokens,
+    window_tokens: windowTokens,
+    percent: Number(((usedTokens / windowTokens) * 100).toFixed(1)),
+  };
 }
 
 function getStateFromMessage(messageData) {
@@ -43,12 +69,13 @@ function getStateFromMessage(messageData) {
   return 'ready';
 }
 
-function parseOpenCodeRuntimeRows(rows) {
+function parseOpenCodeRuntimeRows(rows, modelCatalog = null) {
   const row = Array.isArray(rows) ? rows[0] : null;
   if (!row) return null;
   return {
     state: getStateFromMessage(row.message_data),
-    model: getModelName(row.session_model, row.message_data),
+    model: getModelName(row.session_model, row.assistant_data),
+    contextUsage: getContextUsage(row.assistant_data, modelCatalog, row.session_model),
     lastActivityMs: Number(row.message_created || row.session_updated) || null,
     sessionId: row.session_id || null,
   };
@@ -62,15 +89,28 @@ function getFileMtime(filePath) {
   }
 }
 
-function getDatabaseSignature(databasePath) {
-  return `${getFileMtime(databasePath)}:${getFileMtime(`${databasePath}-wal`)}`;
+function getRuntimeSignature(databasePath, modelCatalogPath) {
+  return `${getFileMtime(databasePath)}:${getFileMtime(`${databasePath}-wal`)}:${getFileMtime(modelCatalogPath)}`;
 }
 
 function escapeSql(value) {
   return String(value).replaceAll("'", "''");
 }
 
-function queryOpenCodeRuntime(databasePath, cwd, sqlitePath = DEFAULT_SQLITE) {
+function readModelCatalog(modelCatalogPath) {
+  try {
+    return JSON.parse(fs.readFileSync(modelCatalogPath, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function queryOpenCodeRuntime(
+  databasePath,
+  cwd,
+  sqlitePath = DEFAULT_SQLITE,
+  modelCatalogPath = DEFAULT_MODEL_CATALOG
+) {
   if (!fs.existsSync(databasePath) || !fs.existsSync(sqlitePath)) return null;
   const directory = escapeSql(cwd);
   const sql = `
@@ -88,14 +128,23 @@ function queryOpenCodeRuntime(databasePath, cwd, sqlitePath = DEFAULT_SQLITE) {
       JOIN latest_session ON latest_session.id = message.session_id
       ORDER BY message.time_created DESC, message.id DESC
       LIMIT 1
+    ), latest_assistant AS (
+      SELECT message.data
+      FROM message
+      JOIN latest_session ON latest_session.id = message.session_id
+      WHERE json_extract(message.data, '$.role') = 'assistant'
+      ORDER BY message.time_created DESC, message.id DESC
+      LIMIT 1
     )
     SELECT latest_session.id AS session_id,
            latest_session.model AS session_model,
            latest_session.time_updated AS session_updated,
            latest_message.data AS message_data,
-           latest_message.time_created AS message_created
+           latest_message.time_created AS message_created,
+           latest_assistant.data AS assistant_data
     FROM latest_session
-    LEFT JOIN latest_message;
+    LEFT JOIN latest_message
+    LEFT JOIN latest_assistant;
   `;
   try {
     const result = spawnSync(sqlitePath, ['-readonly', '-json', databasePath, sql], {
@@ -104,7 +153,10 @@ function queryOpenCodeRuntime(databasePath, cwd, sqlitePath = DEFAULT_SQLITE) {
       windowsHide: true,
     });
     if (result.status !== 0 || !result.stdout.trim()) return null;
-    return parseOpenCodeRuntimeRows(JSON.parse(result.stdout));
+    return parseOpenCodeRuntimeRows(
+      JSON.parse(result.stdout),
+      readModelCatalog(modelCatalogPath)
+    );
   } catch {
     return null;
   }
@@ -113,7 +165,8 @@ function queryOpenCodeRuntime(databasePath, cwd, sqlitePath = DEFAULT_SQLITE) {
 function getOpenCodeRuntimeForCwd(cwd, dataDir, options = {}) {
   if (!cwd || !dataDir) return null;
   const databasePath = path.join(dataDir, 'opencode.db');
-  const signature = getDatabaseSignature(databasePath);
+  const modelCatalogPath = options.modelCatalogPath || DEFAULT_MODEL_CATALOG;
+  const signature = getRuntimeSignature(databasePath, modelCatalogPath);
   const cacheKey = `${databasePath}:${cwd}`;
   const cached = RUNTIME_CACHE.get(cacheKey);
   if (cached?.signature === signature) return cached.runtime;
@@ -121,13 +174,16 @@ function getOpenCodeRuntimeForCwd(cwd, dataDir, options = {}) {
   const runtime = (options.query || queryOpenCodeRuntime)(
     databasePath,
     cwd,
-    options.sqlitePath || DEFAULT_SQLITE
+    options.sqlitePath || DEFAULT_SQLITE,
+    modelCatalogPath
   );
   RUNTIME_CACHE.set(cacheKey, { signature, runtime });
   return runtime;
 }
 
 module.exports = {
+  getContextUsage,
+  getModelIdentity,
   getModelName,
   getOpenCodeRuntimeForCwd,
   getStateFromMessage,

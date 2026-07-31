@@ -32,7 +32,7 @@ macOS 菜单栏里的 AI Coding Agent 状态监控器。通过 SwiftBar 汇总 C
 | 多 Agent / 多实例 | 同时监控 Claude Code、Codex CLI、OpenCode，并按项目区分多个会话 |
 | 五态显示 | 等待确认、等待回复、进行中、就绪、已停止 |
 | 多语言 | 按 macOS 首选语言显示英语、简体中文或繁体中文；语言优先于地区，默认英语 |
-| 上下文占用 | Claude Code 和 Codex 显示百分比及 `已用/窗口` token 数 |
+| 上下文占用 | Claude Code、Codex 和 OpenCode 显示百分比及 `已用/窗口` token 数 |
 | 会话模型 | 在 Agent 实例行显示当前会话最新使用的模型名称 |
 | 显示配置 | 在菜单中独立开关时长、模型、上下文占比、已用上下文和总上下文 |
 | 工具调用配对 | 按 tool ID 配对 `tool_use` 与 `tool_result`，避免并行调用和扫描窗口截断误判 |
@@ -174,7 +174,7 @@ macOS 没有向普通脚本提供稳定的通知权限查询接口，因此开�
 
 - **Claude Code**：`~/.claude/sessions/<PID>.json` 提供 PID/session/cwd 配对及原生 `busy` / `idle` / `waiting` 状态；Claude statusline 和 transcript 提供模型、会话路径、上下文窗口及使用率。
 - **Codex CLI**：读取 `~/.codex/sessions/**/rollout-*.jsonl`，只选择主会话 rollout，并使用最新模型和最近一次有效 `last_token_usage`。
-- **OpenCode**：检测 `opencode` 进程，并优先从 `~/.local/share/opencode/opencode.db` 的当前目录最新会话读取状态和 provider/model；旧版 `storage/*` 保留为模型读取回退。
+- **OpenCode**：检测 `opencode` 进程，并优先从 `~/.local/share/opencode/opencode.db` 的当前目录最新会话读取状态、provider/model 和已用 token；上下文窗口来自 `~/.cache/opencode/models.json`，旧版 `storage/*` 保留为模型读取回退。
 - **进程发现**：SwiftBar 后台采集器只写入 agent 主进程及直属子进程；PID 到 cwd/session 的 `lsof` 元数据低频异步刷新，不阻塞状态轮询。
 
 ## 状态判定
