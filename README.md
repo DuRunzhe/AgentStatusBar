@@ -3,6 +3,7 @@
 macOS 菜单栏里的 AI Coding Agent 状态监控器。通过 SwiftBar 汇总 Claude Code、Codex CLI 和 OpenCode 的运行状态、进程时长与上下文占用，并可点击菜单项跳回对应终端会话。
 
 ## 显示效果
+<img width="1104" height="674" alt="image" src="https://github.com/user-attachments/assets/6f73cd65-4385-4ca7-98de-aa146894ca30" />
 
 ```text
 1个等待确认 · 1个等待回复 · 1个进行中 · 1个就绪
