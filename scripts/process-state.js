@@ -19,6 +19,25 @@ function isIgnoredChildProcess(agentName, command) {
   return agentName === 'Codex' && path.basename(command.trim()) === 'codex-code-mode-host';
 }
 
+function hasActiveDescendantProcesses(pid, agentName, processes) {
+  const byPid = new Map(processes.map(processInfo => [processInfo.pid, processInfo]));
+
+  return processes.some(processInfo => {
+    if (processInfo.pid === pid || isIgnoredChildProcess(agentName, processInfo.command)) {
+      return false;
+    }
+
+    let current = processInfo;
+    const visited = new Set();
+    while (current && !visited.has(current.pid)) {
+      if (current.ppid === pid) return true;
+      visited.add(current.pid);
+      current = byPid.get(current.ppid);
+    }
+    return false;
+  });
+}
+
 function isPrimaryCodexSessionHeader(header) {
   if (!header.includes('"type":"session_meta"')) return false;
   if (header.includes('"thread_source":"subagent"')) return false;
@@ -45,6 +64,7 @@ function parseElapsedTime(value) {
 }
 
 module.exports = {
+  hasActiveDescendantProcesses,
   isIgnoredChildProcess,
   isPrimaryCodexSessionHeader,
   parseProcessSnapshot,

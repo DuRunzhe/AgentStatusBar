@@ -10,6 +10,7 @@ if /bin/ps -axo pid=,ppid=,etime=,comm= \
         lines[NR] = $0
         pids[NR] = $1
         ppids[NR] = $2
+        parent[$1] = $2
         command = $4
         sub(/^.*\//, "", command)
         if (command == "claude" || command == "codex" || command == "opencode") {
@@ -18,7 +19,13 @@ if /bin/ps -axo pid=,ppid=,etime=,comm= \
       }
       END {
         for (i = 1; i <= NR; i++) {
-          if (agent_pids[pids[i]] || agent_pids[ppids[i]]) print lines[i]
+          ancestor = ppids[i]
+          is_agent_descendant = agent_pids[pids[i]]
+          while (!is_agent_descendant && ancestor != 0) {
+            is_agent_descendant = agent_pids[ancestor]
+            ancestor = parent[ancestor]
+          }
+          if (is_agent_descendant) print lines[i]
         }
       }
     ' > "$TEMP_FILE"; then

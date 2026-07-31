@@ -3,6 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
+  hasActiveDescendantProcesses,
   isIgnoredChildProcess,
   isPrimaryCodexSessionHeader,
   parseProcessSnapshot,
@@ -42,4 +43,16 @@ test('parses one process snapshot for agent and child lookup', () => {
     { pid: 43, ppid: 42, elapsed_sec: 3, command: '/bin/bash' },
     { pid: 99, ppid: 1, elapsed_sec: 176400, command: '/opt/bin/codex' },
   ]);
+});
+
+test('finds active nested task processes while ignoring the persistent host itself', () => {
+  const processes = [
+    { pid: 100, ppid: 1, command: '/bin/codex' },
+    { pid: 101, ppid: 100, command: '/bin/codex-code-mode-host' },
+    { pid: 102, ppid: 101, command: '/bin/bash' },
+    { pid: 103, ppid: 102, command: '/opt/homebrew/bin/brew' },
+  ];
+
+  assert.equal(hasActiveDescendantProcesses(100, 'Codex', processes), true);
+  assert.equal(hasActiveDescendantProcesses(100, 'Codex', processes.slice(0, 2)), false);
 });
