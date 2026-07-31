@@ -315,4 +315,5 @@ module.exports = {
   hasPendingToolUseInLines,
   isUserInputTool,
   requiresEscalatedApproval,
+  textEndsWithQuestion,
 };

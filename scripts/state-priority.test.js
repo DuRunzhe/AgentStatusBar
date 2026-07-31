@@ -69,3 +69,13 @@ test('terminal Claude question overrides idle transcript state', () => {
     replyRequested: true,
   }), 'waiting_reply');
 });
+
+test('native OpenCode reply request overrides active process signals', () => {
+  assert.equal(resolveAgentState({
+    alive: true,
+    pendingKind: 'none',
+    nativeState: 'waiting_reply',
+    hasActiveChild: true,
+    transcriptState: 'working',
+  }), 'waiting_reply');
+});

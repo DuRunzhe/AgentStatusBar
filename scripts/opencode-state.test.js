@@ -21,6 +21,19 @@ test('maps a completed OpenCode assistant response to ready', () => {
   })), 'ready');
 });
 
+test('maps a completed OpenCode terminal question to waiting for reply', () => {
+  const message = JSON.stringify({
+    role: 'assistant',
+    finish: 'stop',
+    time: { created: 1000, completed: 2000 },
+  });
+  assert.equal(
+    getStateFromMessage(message, '需要我创建 .gitignore、暂存并做首次提交吗？'),
+    'waiting_reply'
+  );
+  assert.equal(getStateFromMessage(message, '初始化已经完成。'), 'ready');
+});
+
 test('maps incomplete, user, and tool-call messages to working', () => {
   assert.equal(getStateFromMessage(JSON.stringify({
     role: 'assistant',
@@ -126,6 +139,13 @@ test('uses the latest message for state and latest assistant for context', () =>
     lastActivityMs: 900,
     sessionId: 'ses_1',
   });
+});
+
+test('a newer OpenCode user message clears the previous reply request', () => {
+  assert.equal(getStateFromMessage(
+    JSON.stringify({ role: 'user' }),
+    '需要继续吗？'
+  ), 'working');
 });
 
 test('caches OpenCode database reads until the database changes', t => {

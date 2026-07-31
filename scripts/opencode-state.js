@@ -4,6 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { textEndsWithQuestion } = require('./tool-state');
 
 const DEFAULT_SQLITE = '/usr/bin/sqlite3';
 const DEFAULT_MODEL_CATALOG = path.join(os.homedir(), '.cache', 'opencode', 'models.json');
@@ -59,13 +60,14 @@ function getContextUsage(messageData, modelCatalog, sessionModel = null) {
   };
 }
 
-function getStateFromMessage(messageData) {
+function getStateFromMessage(messageData, assistantText = null) {
   const message = parseJson(messageData);
   if (!message) return 'ready';
   if (message.role === 'user') return 'working';
   if (message.role !== 'assistant') return 'ready';
   if (message.time?.completed == null) return 'working';
   if (message.finish === 'tool-calls') return 'working';
+  if (textEndsWithQuestion(assistantText)) return 'waiting_reply';
   return 'ready';
 }
 
@@ -73,7 +75,7 @@ function parseOpenCodeRuntimeRows(rows, modelCatalog = null) {
   const row = Array.isArray(rows) ? rows[0] : null;
   if (!row) return null;
   return {
-    state: getStateFromMessage(row.message_data),
+    state: getStateFromMessage(row.message_data, row.assistant_text),
     model: getModelName(row.session_model, row.assistant_data),
     contextUsage: getContextUsage(row.assistant_data, modelCatalog, row.session_model),
     lastActivityMs: Number(row.message_created || row.session_updated) || null,
@@ -129,11 +131,18 @@ function queryOpenCodeRuntime(
       ORDER BY message.time_created DESC, message.id DESC
       LIMIT 1
     ), latest_assistant AS (
-      SELECT message.data
+      SELECT message.id, message.data
       FROM message
       JOIN latest_session ON latest_session.id = message.session_id
       WHERE json_extract(message.data, '$.role') = 'assistant'
       ORDER BY message.time_created DESC, message.id DESC
+      LIMIT 1
+    ), latest_assistant_text AS (
+      SELECT json_extract(part.data, '$.text') AS text
+      FROM part
+      JOIN latest_assistant ON latest_assistant.id = part.message_id
+      WHERE json_extract(part.data, '$.type') = 'text'
+      ORDER BY part.time_created DESC, part.id DESC
       LIMIT 1
     )
     SELECT latest_session.id AS session_id,
@@ -141,10 +150,12 @@ function queryOpenCodeRuntime(
            latest_session.time_updated AS session_updated,
            latest_message.data AS message_data,
            latest_message.time_created AS message_created,
-           latest_assistant.data AS assistant_data
+           latest_assistant.data AS assistant_data,
+           latest_assistant_text.text AS assistant_text
     FROM latest_session
     LEFT JOIN latest_message
-    LEFT JOIN latest_assistant;
+    LEFT JOIN latest_assistant
+    LEFT JOIN latest_assistant_text;
   `;
   try {
     const result = spawnSync(sqlitePath, ['-readonly', '-json', databasePath, sql], {

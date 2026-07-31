@@ -11,6 +11,7 @@ function resolveAgentState({
   if (!alive) return 'stopped';
   if (pendingKind === 'user_input') return 'waiting_reply';
   if (pendingKind === 'approval') return 'waiting';
+  if (nativeState === 'waiting_reply') return 'waiting_reply';
   if (nativeState === 'waiting') return 'waiting';
   if (nativeState === 'working') return 'working';
   if (replyRequested) return 'waiting_reply';
