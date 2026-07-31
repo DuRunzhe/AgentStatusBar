@@ -16,16 +16,34 @@ test('transcript activity overrides stale native ready state', () => {
 test('pending tool approval overrides stale native ready state', () => {
   assert.equal(resolveAgentState({
     alive: true,
-    pendingKind: 'tool',
+    pendingKind: 'approval',
     nativeState: 'ready',
     transcriptState: 'working',
   }), 'waiting');
 });
 
-test('active child process wins over unmatched executable tool event', () => {
+test('explicit approval overrides an unrelated active child process', () => {
   assert.equal(resolveAgentState({
     alive: true,
-    pendingKind: 'tool',
+    pendingKind: 'approval',
+    hasActiveChild: true,
+    transcriptState: 'working',
+  }), 'waiting');
+});
+
+test('ordinary pending tool remains working without a process snapshot', () => {
+  assert.equal(resolveAgentState({
+    alive: true,
+    pendingKind: 'running',
+    nativeState: 'ready',
+    transcriptState: 'working',
+  }), 'working');
+});
+
+test('active child process remains working for an ordinary pending tool', () => {
+  assert.equal(resolveAgentState({
+    alive: true,
+    pendingKind: 'running',
     nativeState: 'ready',
     hasActiveChild: true,
     transcriptState: 'working',

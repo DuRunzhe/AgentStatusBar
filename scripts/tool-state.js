@@ -24,16 +24,103 @@ function getToolEventName(event) {
   return event.name ?? event.tool_name ?? event.function?.name ?? null;
 }
 
+function getToolEventInput(event) {
+  return event.input ?? event.arguments ?? event.function?.arguments ?? null;
+}
+
 function isUserInputTool(name) {
   const normalized = String(name || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
   return normalized === 'requestuserinput' || normalized === 'askuserquestion';
+}
+
+function sourceHasEscalatedApprovalProperty(source) {
+  let index = 0;
+  while (index < source.length) {
+    const char = source[index];
+
+    if (char === '"' || char === "'" || char === '`') {
+      const quote = char;
+      index++;
+      while (index < source.length) {
+        if (source[index] === '\\') {
+          index += 2;
+          continue;
+        }
+        if (source[index++] === quote) break;
+      }
+      continue;
+    }
+
+    if (char === '/' && source[index + 1] === '/') {
+      index = source.indexOf('\n', index + 2);
+      if (index < 0) return false;
+      continue;
+    }
+    if (char === '/' && source[index + 1] === '*') {
+      index = source.indexOf('*/', index + 2);
+      if (index < 0) return false;
+      index += 2;
+      continue;
+    }
+
+    if (/[A-Za-z_$]/.test(char)) {
+      const start = index++;
+      while (index < source.length && /[A-Za-z0-9_$]/.test(source[index])) index++;
+      if (source.slice(start, index) !== 'sandbox_permissions') continue;
+
+      while (/\s/.test(source[index] || '')) index++;
+      if (source[index++] !== ':') continue;
+      while (/\s/.test(source[index] || '')) index++;
+
+      const quote = source[index];
+      if (quote !== '"' && quote !== "'") continue;
+      const valueStart = ++index;
+      while (index < source.length && source[index] !== quote) {
+        if (source[index] === '\\') index++;
+        index++;
+      }
+      if (source.slice(valueStart, index) === 'require_escalated') return true;
+      continue;
+    }
+
+    index++;
+  }
+  return false;
+}
+
+function requiresEscalatedApproval(input) {
+  if (input == null) return false;
+
+  if (typeof input === 'string') {
+    try {
+      return requiresEscalatedApproval(JSON.parse(input));
+    } catch {
+      return sourceHasEscalatedApprovalProperty(input);
+    }
+  }
+
+  if (Array.isArray(input)) {
+    return input.some(requiresEscalatedApproval);
+  }
+
+  if (typeof input === 'object') {
+    if (input.sandbox_permissions === 'require_escalated') return true;
+    return Object.values(input).some(requiresEscalatedApproval);
+  }
+
+  return false;
 }
 
 function collectToolEvents(value, events) {
   if (!value || typeof value !== 'object') return;
 
   if (value.type === 'tool_use' || value.type === 'function_call' || value.type === 'custom_tool_call') {
-    events.push({ type: 'tool_use', id: getToolEventId(value), name: getToolEventName(value) });
+    events.push({
+      type: 'tool_use',
+      id: getToolEventId(value),
+      name: getToolEventName(value),
+      input: getToolEventInput(value),
+    });
     return;
   }
   if (value.type === 'tool_result' || value.type === 'function_call_output' || value.type === 'custom_tool_call_output') {
@@ -62,18 +149,21 @@ function getPendingToolUseKindInLines(lines) {
     for (const event of events) {
       if (event.id == null || event.id === '') return null;
       const id = String(event.id);
-      if (event.type === 'tool_use') toolUses.set(id, event.name);
+      if (event.type === 'tool_use') toolUses.set(id, event);
       if (event.type === 'tool_result') toolResults.add(id);
     }
   }
 
+  let hasPendingApproval = false;
   let hasPendingTool = false;
-  for (const [id, name] of toolUses) {
+  for (const [id, event] of toolUses) {
     if (toolResults.has(id)) continue;
-    if (isUserInputTool(name)) return 'user_input';
+    if (isUserInputTool(event.name)) return 'user_input';
+    if (requiresEscalatedApproval(event.input)) hasPendingApproval = true;
     hasPendingTool = true;
   }
-  return hasPendingTool ? 'tool' : 'none';
+  if (hasPendingApproval) return 'approval';
+  return hasPendingTool ? 'running' : 'none';
 }
 
 /**
@@ -206,4 +296,5 @@ module.exports = {
   getPendingToolUseKindInLines,
   hasPendingToolUseInLines,
   isUserInputTool,
+  requiresEscalatedApproval,
 };

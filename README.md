@@ -185,7 +185,7 @@ macOS 没有向普通脚本提供稳定的通知权限查询接口，因此开�
 3. Claude 原生状态为 `waiting`：**等待确认**；原生状态为 `busy` / `working` / `running`：**进行中**。
 4. Claude 最新 `end_turn` 回复以直接问句结束，且之后没有新的人工消息：**等待回复**。
 5. 存在实际任务子进程：**进行中**（忽略 Codex 常驻的 `codex-code-mode-host`）。
-6. 最近扫描窗口中存在没有同 ID 结果的其他工具调用：**等待确认**。
+6. 存在尚无同 ID 结果且显式声明 `sandbox_permissions: "require_escalated"` 的 Codex 工具调用：**等待确认**；其他未完成工具调用：**进行中**。
 7. transcript 中有更晚的任务活动：**进行中**。Claude 的 `turn_duration` / `end_turn` 和 Codex 的 `task_complete` 将任务置为**就绪**；Codex 的 `task_started` 将任务置为**进行中**。
 8. Claude 原生状态为 `idle` / `ready`：**就绪**。
 9. 会话事件无法判断时，使用文件更新时间兜底：最近 30 秒有写入视为**进行中**，否则为**就绪**。

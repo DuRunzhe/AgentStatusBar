@@ -13,6 +13,7 @@
 const fs = require('fs');
 const path = require('path');
 const { getClaudeNativeState, getClaudeRuntimeForPid } = require('./claude-context');
+const { getInstanceTrackerKey } = require('./instance-key');
 const { DEFAULT_LOCALE, getMessages, getUiStrings } = require('./i18n');
 const { advanceWaitingNotification } = require('./notification-state');
 const { sendNativeNotification } = require('./notification-delivery');
@@ -655,7 +656,7 @@ function poll() {
   const currentInstanceKeys = new Set();
   for (const agent of agents) {
     for (const inst of agent.instances) {
-      const key = `${agent.name}:${inst.label}`;
+      const key = getInstanceTrackerKey(agent.name, inst);
       currentInstanceKeys.add(key);
       if (appConfig.notifications !== true) {
         delete INSTANCE_TRACKER[key];

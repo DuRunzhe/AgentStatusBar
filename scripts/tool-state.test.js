@@ -197,6 +197,93 @@ test('classifies pending Codex request_user_input as user input', () => {
   assert.equal(getPendingToolUseKindInLines(transcript), 'user_input');
 });
 
+test('classifies an ordinary pending Codex exec as running', () => {
+  const transcript = lines([
+    {
+      type: 'response_item',
+      payload: {
+        type: 'custom_tool_call',
+        name: 'exec',
+        call_id: 'call-1',
+        input: 'const r = await tools.exec_command({ cmd: "git status" });',
+      },
+    },
+  ]);
+  assert.equal(getPendingToolUseKindInLines(transcript), 'running');
+});
+
+test('classifies pending Codex require_escalated exec as approval', () => {
+  const transcript = lines([
+    {
+      type: 'response_item',
+      payload: {
+        type: 'custom_tool_call',
+        name: 'exec',
+        call_id: 'call-1',
+        input: `const r = await tools.exec_command({
+          cmd: "brew install terminal-notifier",
+          sandbox_permissions: "require_escalated",
+          justification: "Allow installation?",
+        });`,
+      },
+    },
+  ]);
+  assert.equal(getPendingToolUseKindInLines(transcript), 'approval');
+});
+
+test('does not treat require_escalated text inside a command string as approval', () => {
+  const transcript = lines([
+    {
+      type: 'response_item',
+      payload: {
+        type: 'custom_tool_call',
+        name: 'exec',
+        call_id: 'call-1',
+        input: `const r = await tools.exec_command({
+          cmd: "rg -n 'sandbox_permissions: \\\"require_escalated\\\"' scripts",
+        });`,
+      },
+    },
+  ]);
+  assert.equal(getPendingToolUseKindInLines(transcript), 'running');
+});
+
+test('detects require_escalated in structured and JSON-encoded arguments', () => {
+  assert.equal(getPendingToolUseKindInLines(lines([
+    {
+      type: 'function_call',
+      name: 'exec_command',
+      call_id: 'call-1',
+      arguments: JSON.stringify({ sandbox_permissions: 'require_escalated' }),
+    },
+  ])), 'approval');
+
+  assert.equal(getPendingToolUseKindInLines(lines([
+    {
+      type: 'tool_use',
+      name: 'exec_command',
+      id: 'call-2',
+      input: { sandbox_permissions: 'require_escalated' },
+    },
+  ])), 'approval');
+});
+
+test('completed escalated exec is not pending', () => {
+  const transcript = lines([
+    {
+      type: 'response_item',
+      payload: {
+        type: 'custom_tool_call',
+        name: 'exec',
+        call_id: 'call-1',
+        input: 'tools.exec_command({ sandbox_permissions: "require_escalated" })',
+      },
+    },
+    { type: 'response_item', payload: { type: 'custom_tool_call_output', call_id: 'call-1' } },
+  ]);
+  assert.equal(getPendingToolUseKindInLines(transcript), 'none');
+});
+
 test('classifies pending Claude AskUserQuestion as user input', () => {
   const transcript = lines([
     { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'AskUserQuestion', id: 'question-1' }] } },
