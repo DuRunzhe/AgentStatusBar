@@ -13,9 +13,10 @@ const CONFIG_KEYS = [
   'contextTotal',
 ];
 
-const DEFAULT_DISPLAY_CONFIG = Object.freeze(
-  Object.fromEntries(CONFIG_KEYS.map(key => [key, true]))
-);
+const DEFAULT_DISPLAY_CONFIG = Object.freeze({
+  ...Object.fromEntries(CONFIG_KEYS.map(key => [key, true])),
+  notifications: false,
+});
 
 const DEFAULT_CONFIG_FILE = path.join(
   os.homedir(),
@@ -30,6 +31,7 @@ function normalizeDisplayConfig(value) {
   for (const key of CONFIG_KEYS) {
     if (typeof value[key] === 'boolean') config[key] = value[key];
   }
+  if (typeof value.notifications === 'boolean') config.notifications = value.notifications;
   return config;
 }
 
@@ -58,6 +60,12 @@ function toggleDisplayConfig(key, configFile = DEFAULT_CONFIG_FILE) {
   return writeDisplayConfig(config, configFile);
 }
 
+function setNotificationsEnabled(enabled, configFile = DEFAULT_CONFIG_FILE) {
+  const config = readDisplayConfig(configFile);
+  config.notifications = enabled === true;
+  return writeDisplayConfig(config, configFile);
+}
+
 if (require.main === module) {
   const [command, key] = process.argv.slice(2);
   try {
@@ -74,6 +82,7 @@ module.exports = {
   DEFAULT_DISPLAY_CONFIG,
   normalizeDisplayConfig,
   readDisplayConfig,
+  setNotificationsEnabled,
   toggleDisplayConfig,
   writeDisplayConfig,
 };

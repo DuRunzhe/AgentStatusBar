@@ -5,21 +5,17 @@
  * 检测 Claude Code / Codex CLI / OpenCode 的运行状态，
  * 支持每个 agent 的多个会话（实例）独立追踪。
  * 写入 /tmp/agent-status.json 供 SwiftBar 插件显示。
- * 进入 🟡 等待确认 状态时自动发送 macOS 原生通知。
+ * 进入需要人工介入的状态时自动发送 macOS 原生通知。
  *
- * 状态定义：
- *   🟢 running       — 进程存活，session 文件近期有活动
- *   🟡 waiting       — 进程存活，但 >30s 无 session 活动（等待用户确认/输入）
- *   🟠 stale         — 进程存活，>120s 无活动（可能卡死/丢失）
- *   ⚪ stopped       — 进程已退出
+ * 状态定义：waiting / waiting_reply / working / ready / stopped
  */
 
 const fs = require('fs');
 const path = require('path');
-const { execFile } = require('child_process');
 const { getClaudeNativeState, getClaudeRuntimeForPid } = require('./claude-context');
 const { DEFAULT_LOCALE, getMessages, getUiStrings } = require('./i18n');
 const { advanceWaitingNotification } = require('./notification-state');
+const { sendNativeNotification } = require('./notification-delivery');
 const { readDisplayConfig } = require('./display-config');
 const { acquireProcessLock } = require('./process-lock');
 const { buildStatusSummary } = require('./status-summary');
@@ -37,7 +33,7 @@ const {
   getPendingToolUseKindInLines,
 } = require('./tool-state');
 const {
-  isIgnoredChildProcess,
+  hasActiveDescendantProcesses,
   isPrimaryCodexSessionHeader,
   parseProcessSnapshot,
 } = require('./process-state');
@@ -112,22 +108,15 @@ const INSTANCE_TRACKER = {};
  * @param {string} instanceLabel
  * @param {number} reminderStage 0=立即, 1=60 秒, 2=3 分钟最后提醒
  */
-function sendNotification(agentName, instanceLabel, reminderStage, state) {
+function sendNotification(agentName, instanceLabel, reminderStage, state, pid) {
   const target = instanceLabel === agentName ? agentName : instanceLabel;
-  const escapeAppleScript = value => value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   const messages = state === 'waiting_reply' ? TEXT.replyNotificationMessages : TEXT.notificationMessages;
   const subtitles = state === 'waiting_reply' ? TEXT.replyNotificationSubtitles : TEXT.notificationSubtitles;
   const message = messages[reminderStage] || messages[0];
   const subtitleText = subtitles[reminderStage] || subtitles[0];
   const msg = message(target);
   const subtitle = subtitleText(agentName);
-  const script = `display notification "${escapeAppleScript(msg)}" with title "Agent Monitor" subtitle "${escapeAppleScript(subtitle)}" sound name "default"`;
-  execFile(
-    '/usr/bin/osascript',
-    ['-e', script],
-    { encoding: 'utf-8', timeout: 3000 },
-    () => { /* notification failures must never block monitoring */ }
-  );
+  sendNativeNotification({ title: 'Agent Monitor', subtitle, message: msg, pid });
 }
 
 let lastProcessSnapshot = [];
@@ -354,10 +343,7 @@ function formatUptime(sec) {
  * 检查 PID 是否有实际任务子进程
  */
 function hasActiveChildProcesses(pid, agentName, processes) {
-  return processes.some(processInfo =>
-    processInfo.ppid === pid &&
-    !isIgnoredChildProcess(agentName, processInfo.command)
-  );
+  return hasActiveDescendantProcesses(pid, agentName, processes);
 }
 
 /**
@@ -602,6 +588,7 @@ function poll() {
   refreshLocale();
   refreshProcessMetadata();
   const now = Date.now();
+  const appConfig = readDisplayConfig();
   const agents = [];
   const processes = getProcessSnapshot();
 
@@ -653,7 +640,8 @@ function poll() {
     locale: LOCALE,
     summary: `${summary.emoji} ${summary.label}`,
     ui: getUiStrings(LOCALE),
-    display_config: readDisplayConfig(),
+    display_config: appConfig,
+    notifications_enabled: appConfig.notifications === true,
     detail: details,
     agents,
     multiSession: true,
@@ -669,10 +657,14 @@ function poll() {
     for (const inst of agent.instances) {
       const key = `${agent.name}:${inst.label}`;
       currentInstanceKeys.add(key);
+      if (appConfig.notifications !== true) {
+        delete INSTANCE_TRACKER[key];
+        continue;
+      }
       const next = advanceWaitingNotification(INSTANCE_TRACKER[key], inst.state, now);
       INSTANCE_TRACKER[key] = next.tracker;
       if (next.reminderStage != null) {
-        sendNotification(agent.name, inst.label, next.reminderStage, inst.state);
+        sendNotification(agent.name, inst.label, next.reminderStage, inst.state, inst.pids[0]);
       }
     }
   }

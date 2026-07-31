@@ -9,6 +9,7 @@ const {
   DEFAULT_DISPLAY_CONFIG,
   normalizeDisplayConfig,
   readDisplayConfig,
+  setNotificationsEnabled,
   toggleDisplayConfig,
 } = require('./display-config');
 
@@ -41,4 +42,15 @@ test('toggles and persists a display setting', t => {
 
 test('rejects unknown display settings', () => {
   assert.throws(() => toggleDisplayConfig('unknown', '/tmp/unused-config.json'));
+});
+
+test('notifications are disabled by default and persist independently', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-statusbar-notification-config-test-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const configFile = path.join(root, 'config.json');
+
+  assert.equal(readDisplayConfig(configFile).notifications, false);
+  assert.equal(setNotificationsEnabled(true, configFile).notifications, true);
+  assert.equal(readDisplayConfig(configFile).model, true);
+  assert.equal(setNotificationsEnabled(false, configFile).notifications, false);
 });

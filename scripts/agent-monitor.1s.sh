@@ -107,6 +107,7 @@ RESTART_PATH="$SCRIPT_DIR/restart-agent-monitor.sh"
 FOCUS_PATH="$SCRIPT_DIR/focus-agent-session.js"
 I18N_PATH="$SCRIPT_DIR/i18n.js"
 DISPLAY_CONFIG_PATH="$SCRIPT_DIR/display-config.js"
+NOTIFICATION_SETTINGS_PATH="$SCRIPT_DIR/notification-settings.js"
 PROCESS_SNAPSHOT_PATH="$SCRIPT_DIR/write-process-snapshot.sh"
 PROCESS_METADATA_PATH="$SCRIPT_DIR/write-process-metadata.sh"
 
@@ -182,6 +183,7 @@ node_cmd = sys.argv[2]
 restart_path = sys.argv[3]
 refresh_time = sys.argv[4]
 display_config_path = sys.argv[5]
+notification_settings_path = sys.argv[6]
 stopped_text = ui.get('statusStopped', 'Stopped')
 unknown_text = ui.get('statusUnknown', 'Unknown')
 display_config = data.get('display_config', {})
@@ -252,6 +254,13 @@ for a in agents:
 
 print('---')
 print(f\"{ui.get('settings', 'Settings')} | sfimage=gearshape\")
+notifications_enabled = data.get('notifications_enabled') is True
+notification_action = ui.get('disableNotifications', 'Click to disable notifications') if notifications_enabled else ui.get('enableNotifications', 'Click to enable notifications')
+notification_icon = 'bell.fill' if notifications_enabled else 'bell.slash'
+notification_color = '#34C759' if notifications_enabled else '#8E8E93'
+print(f\"--{ui.get('notifications', 'Notifications')} | sfimage=bell\")
+print(f\"----{notification_action} | bash={node_cmd} param0={notification_settings_path} param1=toggle terminal=false refresh=true sfimage={notification_icon} sfcolor={notification_color}\")
+print(f\"----{ui.get('openNotificationSettings', 'Open System Notification Settings')} | bash={node_cmd} param0={notification_settings_path} param1=open-settings terminal=false sfimage=gearshape\")
 print(f\"--{ui.get('displayConfig', 'Display options')} | sfimage=slider.horizontal.3\")
 setting_items = [
     ('duration', 'showDuration', 'Duration'),
@@ -268,4 +277,4 @@ print('---')
 print(f\"{ui.get('lastUpdated', 'Last updated')}: {refresh_time} | color=gray size=10\")
 print(f\"{ui.get('refreshNow', 'Refresh now')} | refresh=true\")
 print(f\"{ui.get('restartDaemon', 'Restart monitor daemon')} | bash=/bin/bash param0={restart_path} terminal=false refresh=true\")
-" "$FOCUS_PATH" "$NODE_CMD" "$RESTART_PATH" "$(date '+%H:%M:%S')" "$DISPLAY_CONFIG_PATH" 2>/dev/null
+" "$FOCUS_PATH" "$NODE_CMD" "$RESTART_PATH" "$(date '+%H:%M:%S')" "$DISPLAY_CONFIG_PATH" "$NOTIFICATION_SETTINGS_PATH" 2>/dev/null
