@@ -21,6 +21,7 @@ const { readDisplayConfig } = require('./display-config');
 const { acquireProcessLock } = require('./process-lock');
 const { buildStatusSummary } = require('./status-summary');
 const { resolveAgentState } = require('./state-priority');
+const { getOpenCodeRuntimeForCwd } = require('./opencode-state');
 const {
   getClaudeModelInLines,
   getCodexModelInLines,
@@ -541,7 +542,12 @@ function getInstances(agentDef, processes) {
       projectLabel = `${agentDef.name} #${idx}`;
     }
 
-    const nativeState = agentDef.name === 'Claude' ? getClaudeNativeState(claudeRuntime) : null;
+    const openCodeRuntime = agentDef.name === 'OpenCode' && cwd
+      ? getOpenCodeRuntimeForCwd(cwd, agentDef.sessionDir)
+      : null;
+    const nativeState = agentDef.name === 'Claude'
+      ? getClaudeNativeState(claudeRuntime)
+      : openCodeRuntime?.state || null;
     const sessionAnalysis = agentDef.name === 'Claude' || agentDef.name === 'Codex'
       ? analyzeSessionFile(group.sessionFile, agentDef.name)
       : null;
@@ -552,7 +558,7 @@ function getInstances(agentDef, processes) {
       group.sessionFile,
       agentDef.name,
       nativeState,
-      processes,
+      openCodeRuntime ? [] : processes,
       sessionAnalysis
     );
     let contextUsage = null;
@@ -565,16 +571,25 @@ function getInstances(agentDef, processes) {
       model = sessionAnalysis?.model
         || claudeRuntime?.model
         || null;
-    } else if (agentDef.name === 'OpenCode' && group.sessionFile) {
-      model = getOpenCodeModel(group.sessionFile, path.join(agentDef.sessionDir, 'storage'));
+    } else if (agentDef.name === 'OpenCode') {
+      model = openCodeRuntime?.model
+        || (group.sessionFile
+          ? getOpenCodeModel(group.sessionFile, path.join(agentDef.sessionDir, 'storage'))
+          : null);
     }
+    const processStartedAt = now - pidAge * 1000;
+    const lastActivityMs = openCodeRuntime?.lastActivityMs >= processStartedAt
+      ? openCodeRuntime.lastActivityMs
+      : mtime;
     return {
       ...status,
       label: projectLabel,
       status_label: status.label,
       pids: group.pids,
       uptime_sec: pidAge,
-      last_activity_ms_ago: group.pids.length > 0 && mtime > 0 ? (now - mtime) : null,
+      last_activity_ms_ago: group.pids.length > 0 && lastActivityMs > 0
+        ? (now - lastActivityMs)
+        : null,
       model,
       context_usage: contextUsage,
     };

@@ -174,7 +174,7 @@ macOS 没有向普通脚本提供稳定的通知权限查询接口，因此开�
 
 - **Claude Code**：`~/.claude/sessions/<PID>.json` 提供 PID/session/cwd 配对及原生 `busy` / `idle` / `waiting` 状态；Claude statusline 和 transcript 提供模型、会话路径、上下文窗口及使用率。
 - **Codex CLI**：读取 `~/.codex/sessions/**/rollout-*.jsonl`，只选择主会话 rollout，并使用最新模型和最近一次有效 `last_token_usage`。
-- **OpenCode**：检测 `opencode` 进程及 `~/.local/share/opencode/**/storage/*`，从当前会话的最新消息读取 provider/model。
+- **OpenCode**：检测 `opencode` 进程，并优先从 `~/.local/share/opencode/opencode.db` 的当前目录最新会话读取状态和 provider/model；旧版 `storage/*` 保留为模型读取回退。
 - **进程发现**：SwiftBar 后台采集器只写入 agent 主进程及直属子进程；PID 到 cwd/session 的 `lsof` 元数据低频异步刷新，不阻塞状态轮询。
 
 ## 状态判定
