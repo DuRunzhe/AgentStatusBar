@@ -231,6 +231,21 @@ test('classifies pending Codex require_escalated exec as approval', () => {
   assert.equal(getPendingToolUseKindInLines(transcript), 'approval');
 });
 
+test('classifies quoted compact Codex require_escalated arguments as approval', () => {
+  const transcript = lines([
+    {
+      type: 'response_item',
+      payload: {
+        type: 'custom_tool_call',
+        name: 'exec',
+        call_id: 'call-1',
+        input: 'const r = await tools.exec_command({"cmd":"git init && git commit","sandbox_permissions":"require_escalated","justification":"Allow commit?"});',
+      },
+    },
+  ]);
+  assert.equal(getPendingToolUseKindInLines(transcript), 'approval');
+});
+
 test('does not treat require_escalated text inside a command string as approval', () => {
   const transcript = lines([
     {

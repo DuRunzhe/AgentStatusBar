@@ -33,21 +33,42 @@ function isUserInputTool(name) {
   return normalized === 'requestuserinput' || normalized === 'askuserquestion';
 }
 
+function readQuotedSourceToken(source, start) {
+  const quote = source[start];
+  let index = start + 1;
+  let value = '';
+  while (index < source.length) {
+    if (source[index] === '\\') {
+      if (index + 1 < source.length) value += source[index + 1];
+      index += 2;
+      continue;
+    }
+    if (source[index] === quote) {
+      return { value, end: index + 1 };
+    }
+    value += source[index++];
+  }
+  return { value, end: source.length };
+}
+
 function sourceHasEscalatedApprovalProperty(source) {
   let index = 0;
   while (index < source.length) {
     const char = source[index];
 
     if (char === '"' || char === "'" || char === '`') {
-      const quote = char;
-      index++;
-      while (index < source.length) {
-        if (source[index] === '\\') {
-          index += 2;
-          continue;
+      const token = readQuotedSourceToken(source, index);
+      let cursor = token.end;
+      while (/\s/.test(source[cursor] || '')) cursor++;
+      if (char !== '`' && token.value === 'sandbox_permissions' && source[cursor] === ':') {
+        cursor++;
+        while (/\s/.test(source[cursor] || '')) cursor++;
+        if (source[cursor] === '"' || source[cursor] === "'") {
+          const value = readQuotedSourceToken(source, cursor);
+          if (value.value === 'require_escalated') return true;
         }
-        if (source[index++] === quote) break;
       }
+      index = token.end;
       continue;
     }
 
@@ -74,12 +95,9 @@ function sourceHasEscalatedApprovalProperty(source) {
 
       const quote = source[index];
       if (quote !== '"' && quote !== "'") continue;
-      const valueStart = ++index;
-      while (index < source.length && source[index] !== quote) {
-        if (source[index] === '\\') index++;
-        index++;
-      }
-      if (source.slice(valueStart, index) === 'require_escalated') return true;
+      const value = readQuotedSourceToken(source, index);
+      if (value.value === 'require_escalated') return true;
+      index = value.end;
       continue;
     }
 
