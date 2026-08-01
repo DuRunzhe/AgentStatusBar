@@ -39,6 +39,7 @@ macOS 菜单栏里的 AI Coding Agent 状态监控器。通过 SwiftBar 汇总 C
 | 进程时长 | 显示 Agent 进程持续运行时间 |
 | 会话跳转 | Terminal.app / iTerm2 精确切换标签页，其他受支持终端降级为激活应用 |
 | 人工介入提醒 | 可在“设置 → 通知”启用；等待确认或等待回复时立即通知，持续 60 秒再次提醒，持续 3 分钟发送最后提醒，点击通知可跳转对应会话 |
+| 开机自启 | 在“设置 → 开机自启”中引导安装或卸载用户级 LaunchAgent，并打开 macOS 登录项设置确认 SwiftBar 自启 |
 | 自动恢复 | launchd 通过 `KeepAlive` 管理守护进程 |
 
 提醒仅在实例持续处于同一种人工介入状态时发送：进入等待确认或等待回复时立即通知，60 秒后再次提醒，3 分钟后发送最后提醒，每次带系统提示音。实例恢复为进行中、就绪或已停止后，尚未发送的后续提醒会取消；在等待确认与等待回复之间切换，或离开后再次进入任一等待状态时，会立即开始新一轮提醒。
@@ -101,44 +102,25 @@ node scripts/install-claude-statusline.js
 /tmp/agent-statusbar-claude-context/
 ```
 
-### 4. 安装 launchd 守护进程
+### 4. 开启后台服务与开机自启
+
+首次打开 SwiftBar 后：
+
+1. 菜单提示“监控守护进程未启动”时，点击“启动守护进程”。
+2. 再进入“设置 → 开机自启 → 点击开启开机自启”。
+3. 在确认弹窗中点击“开启”。AgentStatusBar 会安装并启动用户级 LaunchAgent。
+4. 系统会打开“系统设置 → 通用 → 登录项与扩展”，确认 SwiftBar 已在“登录时打开”中启用，以便登录后自动显示菜单栏图标。
+
+也可以在仓库根目录直接启动同一套引导：
 
 ```bash
-REPO_DIR="$(pwd)"
-NODE_BIN="$(command -v node)"
-PLIST="$HOME/Library/LaunchAgents/com.agentstatusbar.monitor.plist"
+node scripts/startup-settings.js toggle
+```
 
-mkdir -p "$HOME/Library/LaunchAgents"
-cat > "$PLIST" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.agentstatusbar.monitor</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>$NODE_BIN</string>
-        <string>$REPO_DIR/scripts/agent-monitor.js</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>ProcessType</key>
-    <string>Background</string>
-    <key>StandardOutPath</key>
-    <string>/tmp/agent-monitor.stdout.log</string>
-    <key>StandardErrorPath</key>
-    <string>/tmp/agent-monitor.stderr.log</string>
-</dict>
-</plist>
-EOF
+后台服务标识为 `com.agentstatusbar.monitor`，配置文件位于：
 
-launchctl bootout "gui/$(id -u)/com.agentstatusbar.monitor" 2>/dev/null || true
-launchctl bootstrap "gui/$(id -u)" "$PLIST"
-launchctl enable "gui/$(id -u)/com.agentstatusbar.monitor"
-launchctl kickstart -k "gui/$(id -u)/com.agentstatusbar.monitor"
+```text
+~/Library/LaunchAgents/com.agentstatusbar.monitor.plist
 ```
 
 SwiftBar 每秒刷新一次菜单，守护进程每 2 秒更新一次 `/tmp/agent-status.json`。SwiftBar 同时每 2 秒异步生成精简进程快照，并每 30 秒异步刷新 PID 对应的 cwd/session 元数据；较重的 `lsof` 不在守护进程轮询路径中执行。
@@ -158,7 +140,7 @@ SwiftBar 每秒刷新一次菜单，守护进程每 2 秒更新一次 `/tmp/agen
 | 重启守护进程 | 点击菜单底部的“重启守护进程”；会清理重复实例并通过 launchd 重启 |
 | 调整显示内容 | 悬浮“设置 → 显示配置”，点击子菜单选项即可切换 |
 
-显示配置和通知开关保存在 `~/.config/agent-statusbar/config.json`，开机自启状态由 `~/Library/LaunchAgents/com.agentstatusbar.monitor.plist` 判断，绿色图标表示已启用。首次运行时五项显示内容默认开启，通知默认关闭。受 macOS 原生菜单行为限制，执行操作后菜单会关闭；重新打开即可查看最新开关状态或继续调整。
+显示配置和通知开关保存在 `~/.config/agent-statusbar/config.json`。开机自启状态由 `~/Library/LaunchAgents/com.agentstatusbar.monitor.plist` 判断，绿色图标表示已启用；开启时安装并启动服务，关闭时卸载服务并删除 plist。首次运行时五项显示内容默认开启，通知默认关闭。受 macOS 原生菜单行为限制，执行操作后菜单会关闭；重新打开即可查看最新开关状态或继续调整。
 
 macOS 没有向普通脚本提供稳定的通知权限查询接口，因此开启流程使用测试通知确认：只有用户选择“已看到”才启用开关；选择“还没有”、取消依赖安装或退出设置流程都会保持关闭。
 
@@ -250,7 +232,8 @@ bash -n scripts/agent-monitor.1s.sh
 常见问题：
 
 - 菜单栏没有出现：确认 SwiftBar 插件目录及 `agent-monitor.1s.sh` 软链接正确。
-- 显示“监控守护进程未启动”：执行安装步骤中的 `launchctl bootstrap` / `kickstart` 命令。
+- 显示“监控守护进程未启动”：点击菜单中的“启动守护进程”，然后通过“设置 → 开机自启”完成持久化安装；也可运行 `node scripts/startup-settings.js toggle` 重新执行引导。
+- 开机自启无法开启：确认仓库没有被移动或删除，再重新点击“设置 → 开机自启 → 点击开启开机自启”；使用 `launchctl print "gui/$(id -u)/com.agentstatusbar.monitor"` 检查服务状态。
 - Claude 没有上下文数据：重新运行安装器，并在 Claude 会话产生一次 statusline 更新。
 - 点击 Agent 没有跳转：检查 macOS“系统设置 → 隐私与安全性 → 自动化”中的终端控制权限。
 - 通知开关无法启用：重新点击“设置 → 通知”，确认允许安装依赖，并在系统通知设置中为 `terminal-notifier` 开启通知和横幅；看到测试通知后选择“已看到”。
