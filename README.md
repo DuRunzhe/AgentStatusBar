@@ -14,13 +14,13 @@ macOS 菜单栏里的 AI Coding Agent 状态监控器。通过 SwiftBar 汇总 C
 └── [灰色圆点] OpenCode: 已停止
 ```
 
-- 🔵 **进行中**：正在处理任务；顶部蓝色圆点每 2 秒切换中圆/大圆，以 4 秒一轮形成舒缓的心跳提示。
+- 🔵 **进行中**：正在处理任务；顶部蓝色圆点约每 2 秒切换中圆/大圆，以约 4 秒一轮形成舒缓的心跳提示。
 - 🟢 **就绪**：进程存活，当前没有未完成任务。
 - 🟡 **等待确认**：Agent 正在等待工具执行授权或其他确认。
 - 🟡 **等待回复**：Agent 已提出需要人工回答的问题，包括 Codex `request_user_input`、Claude `AskUserQuestion` 和 Claude 回合末尾的直接问句。
 - 灰色圆点 **已停止**：进程不存在。
 
-“等待确认”和“等待回复”都属于需要人工介入的紧急状态。菜单栏顶部使用黄色圆点，每秒切换一次视觉强度，以 2 秒一轮呼吸，并触发同一套分级系统通知。菜单栏汇总始终按“等待确认 → 等待回复 → 进行中 → 就绪”排序，已停止实例不计入汇总。
+“等待确认”和“等待回复”都属于需要人工介入的紧急状态。菜单栏顶部黄色图标约每 2 秒切换一次视觉强度，以约 4 秒一轮形成呼吸提示，并触发同一套分级系统通知。菜单栏汇总始终按“等待确认 → 等待回复 → 进行中 → 就绪”排序，已停止实例不计入汇总。下拉菜单使用原始彩色状态圆点：等待确认/等待回复为黄色、进行中为蓝色、就绪为绿色、已停止为灰色；直接使用系统彩色 Emoji，避免重新引入 Base64 图片解码开销。
 <img width="1464" height="62" alt="image" src="https://github.com/user-attachments/assets/9443f6d9-453e-4bde-b461-59e41f1567f0" />
 
 点击菜单栏图标展开详情。点击存活的 Agent 行可跳转到对应终端会话；已停止项不可点击。
@@ -80,8 +80,8 @@ cd AgentStatusBar
 REPO_DIR="$(pwd)"
 SWIFTBAR_DIR="$HOME/Library/Application Support/SwiftBar/Plugins"
 mkdir -p "$SWIFTBAR_DIR"
-ln -sf "$REPO_DIR/scripts/agent-monitor.1s.sh" \
-  "$SWIFTBAR_DIR/agent-monitor.1s.sh"
+ln -sf "$REPO_DIR/scripts/agent-monitor.1900ms.sh" \
+  "$SWIFTBAR_DIR/agent-monitor.1900ms.sh"
 ```
 
 打开 SwiftBar，并将插件目录设置为：
@@ -123,7 +123,7 @@ node scripts/startup-settings.js toggle
 ~/Library/LaunchAgents/com.agentstatusbar.monitor.plist
 ```
 
-SwiftBar 每秒刷新一次菜单，守护进程每 2 秒更新一次 `/tmp/agent-status.json`。SwiftBar 同时每 2 秒异步生成精简进程快照，并每 30 秒异步刷新 PID 对应的 cwd/session 元数据；较重的 `lsof` 不在守护进程轮询路径中执行。
+SwiftBar 每 1.9 秒刷新一次菜单，守护进程每 2 秒更新一次 `/tmp/agent-status.json`。SwiftBar 同时每 2 秒异步生成精简进程快照，并每 30 秒异步刷新 PID 对应的 cwd/session 元数据；较重的 `lsof` 不在守护进程轮询路径中执行。
 
 ## 使用
 
@@ -191,8 +191,8 @@ Codex rollout / OpenCode storage ───────────────�
                                                          /tmp/agent-status.json
                                                                      |
                                                                      v
-                                                         agent-monitor.1s.sh
-                                                         SwiftBar 每秒渲染
+                                                         agent-monitor.1900ms.sh
+                                                         SwiftBar 每 1.9 秒渲染
 
 点击 Agent 行 ──> focus-agent-session.js ──> TTY ──> 终端窗口/应用
 ```
@@ -212,7 +212,7 @@ const WAIT_THRESHOLD_MS = 30000;
 
 ```bash
 # 查看 SwiftBar 实际输出
-bash scripts/agent-monitor.1s.sh
+bash scripts/agent-monitor.1900ms.sh
 
 # 查看守护进程状态
 launchctl print "gui/$(id -u)/com.agentstatusbar.monitor"
@@ -226,12 +226,12 @@ node scripts/install-claude-statusline.js
 # 运行测试与语法检查
 node --test scripts/*.test.js
 node --check scripts/agent-monitor.js
-bash -n scripts/agent-monitor.1s.sh
+bash -n scripts/agent-monitor.1900ms.sh
 ```
 
 常见问题：
 
-- 菜单栏没有出现：确认 SwiftBar 插件目录及 `agent-monitor.1s.sh` 软链接正确。
+- 菜单栏没有出现：确认 SwiftBar 插件目录及 `agent-monitor.1900ms.sh` 软链接正确。
 - 显示“监控守护进程未启动”：点击菜单中的“启动守护进程”，然后通过“设置 → 开机自启”完成持久化安装；也可运行 `node scripts/startup-settings.js toggle` 重新执行引导。
 - 开机自启无法开启：确认仓库没有被移动或删除，再重新点击“设置 → 开机自启 → 点击开启开机自启”；使用 `launchctl print "gui/$(id -u)/com.agentstatusbar.monitor"` 检查服务状态。
 - Claude 没有上下文数据：重新运行安装器，并在 Claude 会话产生一次 statusline 更新。
