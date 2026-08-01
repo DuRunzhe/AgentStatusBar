@@ -20,7 +20,7 @@ const COPY = {
     setupMessage: 'A test notification will be sent, then macOS Notification settings will open. Enable notifications and banners for terminal-notifier.',
     openSettings: 'Open Settings',
     verifyTitle: 'Verify notifications',
-    verifyMessage: 'After enabling terminal-notifier in System Settings, did you see the Agent Monitor test notification?',
+    verifyMessage: 'After enabling terminal-notifier in System Settings, did you see the AgentStatusBar test notification?',
     enabled: 'I saw it',
     notYet: 'Not yet',
     testSubtitle: 'Permission test',
@@ -40,7 +40,7 @@ const COPY = {
     setupMessage: '接下来会发送一条测试通知并打开 macOS 通知设置。请为 terminal-notifier 开启“允许通知”和横幅。',
     openSettings: '打开设置',
     verifyTitle: '验证通知',
-    verifyMessage: '在系统设置中开启 terminal-notifier 后，你是否看到了 Agent Monitor 测试通知？',
+    verifyMessage: '在系统设置中开启 terminal-notifier 后，你是否看到了 AgentStatusBar 测试通知？',
     enabled: '已看到',
     notYet: '还没有',
     testSubtitle: '通知权限测试',
@@ -60,7 +60,7 @@ const COPY = {
     setupMessage: '接下來會傳送一則測試通知並開啟 macOS 通知設定。請為 terminal-notifier 開啟「允許通知」和橫幅。',
     openSettings: '開啟設定',
     verifyTitle: '驗證通知',
-    verifyMessage: '在系統設定中開啟 terminal-notifier 後，你是否看到了 Agent Monitor 測試通知？',
+    verifyMessage: '在系統設定中開啟 terminal-notifier 後，你是否看到了 AgentStatusBar 測試通知？',
     enabled: '已看到',
     notYet: '還沒有',
     testSubtitle: '通知權限測試',
@@ -138,7 +138,7 @@ function configureNotifications({
     try {
       run('/usr/bin/osascript', [
         '-e',
-        `display notification "${escapeAppleScript(copy.installing)}" with title "Agent Monitor"`,
+        `display notification "${escapeAppleScript(copy.installing)}" with title "AgentStatusBar"`,
       ], { stdio: 'ignore', timeout: 3000 });
     } catch { /* progress notification is optional */ }
     try {
@@ -167,7 +167,7 @@ function configureNotifications({
 
   try {
     run(notifierPath, [
-      '-title', 'Agent Monitor',
+      '-title', 'AgentStatusBar',
       '-subtitle', copy.testSubtitle,
       '-message', copy.testMessage,
       '-sound', 'default',

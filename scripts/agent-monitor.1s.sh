@@ -1,5 +1,5 @@
 #!/bin/bash
-# <xbar.title>Agent Monitor</xbar.title>
+# <xbar.title>AgentStatusBar</xbar.title>
 # <xbar.version>v0.2.0</xbar.version>
 # <xbar.author>bitwasher</xbar.author>
 # <xbar.desc>AI Coding Agent status monitor with multi-session tracking</xbar.desc>
@@ -108,6 +108,7 @@ FOCUS_PATH="$SCRIPT_DIR/focus-agent-session.js"
 I18N_PATH="$SCRIPT_DIR/i18n.js"
 DISPLAY_CONFIG_PATH="$SCRIPT_DIR/display-config.js"
 NOTIFICATION_SETTINGS_PATH="$SCRIPT_DIR/notification-settings.js"
+STARTUP_SETTINGS_PATH="$SCRIPT_DIR/startup-settings.js"
 PROCESS_SNAPSHOT_PATH="$SCRIPT_DIR/write-process-snapshot.sh"
 PROCESS_METADATA_PATH="$SCRIPT_DIR/write-process-metadata.sh"
 
@@ -117,7 +118,7 @@ refresh_process_metadata
 if [ ! -f "$STATUS_FILE" ]; then
   DAEMON_NOT_RUNNING=$("$NODE_CMD" "$I18N_PATH" daemonNotRunning 2>/dev/null || echo "Monitor daemon is not running")
   START_DAEMON=$("$NODE_CMD" "$I18N_PATH" startDaemon 2>/dev/null || echo "Start monitor daemon")
-  echo "⏳ Agent Monitor"
+  echo "⏳ AgentStatusBar"
   echo "---"
   echo "$DAEMON_NOT_RUNNING | color=red"
   echo "$START_DAEMON | bash=$NODE_CMD param0=$DAEMON_PATH terminal=false"
@@ -125,6 +126,8 @@ if [ ! -f "$STATUS_FILE" ]; then
 fi
 
 DATA=$(cat "$STATUS_FILE")
+DATA_LOCALE=$(echo "$DATA" | python3 -c "import sys,json; print(json.load(sys.stdin).get('locale', 'en'))" 2>/dev/null || echo en)
+CURRENT_UI_JSON=$("$NODE_CMD" "$I18N_PATH" --json "$DATA_LOCALE" 2>/dev/null || echo '{}')
 
 # Summary line — shows in menu bar
 SUMMARY=$(echo "$DATA" | python3 -c "import sys,json; print(json.load(sys.stdin)['summary'])" 2>/dev/null)
@@ -177,13 +180,19 @@ def format_tokens(value):
 
 data = json.load(sys.stdin)
 agents = data.get('agents', [])
-ui = data.get('ui', {})
+ui = data.get('ui', {}).copy()
+try:
+    ui.update(json.loads(sys.argv[9]))
+except (IndexError, json.JSONDecodeError, TypeError):
+    pass
 focus_path = sys.argv[1]
 node_cmd = sys.argv[2]
 restart_path = sys.argv[3]
 refresh_time = sys.argv[4]
 display_config_path = sys.argv[5]
 notification_settings_path = sys.argv[6]
+startup_settings_path = sys.argv[7]
+startup_enabled = sys.argv[8] == 'true'
 stopped_text = ui.get('statusStopped', 'Stopped')
 unknown_text = ui.get('statusUnknown', 'Unknown')
 display_config = data.get('display_config', {})
@@ -265,6 +274,12 @@ for a in agents:
 
 print('---')
 print(f\"{ui.get('settings', 'Settings')} | sfimage=gearshape\")
+startup_action = ui.get('disableStartup', 'Click to disable start at login') if startup_enabled else ui.get('enableStartup', 'Click to enable start at login')
+startup_icon = 'checkmark.circle.fill' if startup_enabled else 'circle'
+startup_color = '#34C759' if startup_enabled else '#8E8E93'
+print(f\"--{ui.get('startup', 'Start at login')} | sfimage=power\")
+print(f\"----{startup_action} | bash={node_cmd} param0={startup_settings_path} param1=toggle terminal=false refresh=true sfimage={startup_icon} sfcolor={startup_color}\")
+print(f\"----{ui.get('openLoginItems', 'Open Login Items Settings')} | bash={node_cmd} param0={startup_settings_path} param1=open-settings terminal=false sfimage=gearshape\")
 notifications_enabled = data.get('notifications_enabled') is True
 notification_action = ui.get('disableNotifications', 'Click to disable notifications') if notifications_enabled else ui.get('enableNotifications', 'Click to enable notifications')
 notification_icon = 'bell.fill' if notifications_enabled else 'bell.slash'
@@ -289,4 +304,4 @@ print('---')
 print(f\"{ui.get('lastUpdated', 'Last updated')}: {refresh_time} | color=gray size=10\")
 print(f\"{ui.get('refreshNow', 'Refresh now')} | refresh=true\")
 print(f\"{ui.get('restartDaemon', 'Restart monitor daemon')} | bash=/bin/bash param0={restart_path} terminal=false refresh=true\")
-" "$FOCUS_PATH" "$NODE_CMD" "$RESTART_PATH" "$(date '+%H:%M:%S')" "$DISPLAY_CONFIG_PATH" "$NOTIFICATION_SETTINGS_PATH" 2>/dev/null
+" "$FOCUS_PATH" "$NODE_CMD" "$RESTART_PATH" "$(date '+%H:%M:%S')" "$DISPLAY_CONFIG_PATH" "$NOTIFICATION_SETTINGS_PATH" "$STARTUP_SETTINGS_PATH" "$("$NODE_CMD" "$STARTUP_SETTINGS_PATH" status 2>/dev/null || echo false)" "$CURRENT_UI_JSON" 2>/dev/null

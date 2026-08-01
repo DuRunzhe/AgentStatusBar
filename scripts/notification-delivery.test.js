@@ -28,14 +28,14 @@ test('builds a shell-safe focus command from fixed paths and a PID', () => {
 
 test('builds a clickable terminal-notifier request', () => {
   assert.deepEqual(buildTerminalNotifierArgs({
-    title: 'Agent Monitor',
+    title: 'AgentStatusBar',
     subtitle: 'Claude 等待回复',
     message: 'Claude 正在等待你的回复',
     pid: 321,
     nodePath: '/usr/local/bin/node',
     focusPath: '/repo/scripts/focus-agent-session.js',
   }), [
-    '-title', 'Agent Monitor',
+    '-title', 'AgentStatusBar',
     '-subtitle', 'Claude 等待回复',
     '-message', 'Claude 正在等待你的回复',
     '-sound', 'default',

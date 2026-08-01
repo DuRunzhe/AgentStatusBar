@@ -106,7 +106,7 @@ node scripts/install-claude-statusline.js
 ```bash
 REPO_DIR="$(pwd)"
 NODE_BIN="$(command -v node)"
-PLIST="$HOME/Library/LaunchAgents/openclaw.agent-monitor.plist"
+PLIST="$HOME/Library/LaunchAgents/com.agentstatusbar.monitor.plist"
 
 mkdir -p "$HOME/Library/LaunchAgents"
 cat > "$PLIST" <<EOF
@@ -115,7 +115,7 @@ cat > "$PLIST" <<EOF
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>openclaw.agent-monitor</string>
+    <string>com.agentstatusbar.monitor</string>
     <key>ProgramArguments</key>
     <array>
         <string>$NODE_BIN</string>
@@ -135,10 +135,10 @@ cat > "$PLIST" <<EOF
 </plist>
 EOF
 
-launchctl bootout "gui/$(id -u)/openclaw.agent-monitor" 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/com.agentstatusbar.monitor" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$PLIST"
-launchctl enable "gui/$(id -u)/openclaw.agent-monitor"
-launchctl kickstart -k "gui/$(id -u)/openclaw.agent-monitor"
+launchctl enable "gui/$(id -u)/com.agentstatusbar.monitor"
+launchctl kickstart -k "gui/$(id -u)/com.agentstatusbar.monitor"
 ```
 
 SwiftBar 每秒刷新一次菜单，守护进程每 2 秒更新一次 `/tmp/agent-status.json`。SwiftBar 同时每 2 秒异步生成精简进程快照，并每 30 秒异步刷新 PID 对应的 cwd/session 元数据；较重的 `lsof` 不在守护进程轮询路径中执行。
@@ -150,6 +150,7 @@ SwiftBar 每秒刷新一次菜单，守护进程每 2 秒更新一次 `/tmp/agen
 | 查看汇总 | 查看 macOS 顶部菜单栏 |
 | 查看实例详情 | 点击菜单栏图标 |
 | 跳转 Agent 会话 | 点击存活的 Agent 菜单项 |
+| 开启或关闭开机自启 | 点击“设置 → 开机自启 → 点击开启开机自启/点击关闭开机自启”；开启时会安装用户级 LaunchAgent，并打开系统登录项设置引导确认 SwiftBar 自启 |
 | 开启或关闭通知 | 点击“设置 → 通知 → 点击开启通知/点击关闭通知”；首次开启会检查依赖、引导系统权限并发送测试通知 |
 | 打开通知设置 | 点击“设置 → 通知 → 打开系统通知设置”；菜单会提示应在通知应用列表中查找 `terminal-notifier` |
 | 从通知跳转会话 | 通知开关启用后，点击等待确认/等待回复通知 |
@@ -157,7 +158,7 @@ SwiftBar 每秒刷新一次菜单，守护进程每 2 秒更新一次 `/tmp/agen
 | 重启守护进程 | 点击菜单底部的“重启守护进程”；会清理重复实例并通过 launchd 重启 |
 | 调整显示内容 | 悬浮“设置 → 显示配置”，点击子菜单选项即可切换 |
 
-显示配置和通知开关保存在 `~/.config/agent-statusbar/config.json`，系统勾选标记表示该项已启用。首次运行时五项显示内容默认开启，通知默认关闭。受 macOS 原生菜单行为限制，执行操作后菜单会关闭；重新打开即可查看最新开关状态或继续调整。
+显示配置和通知开关保存在 `~/.config/agent-statusbar/config.json`，开机自启状态由 `~/Library/LaunchAgents/com.agentstatusbar.monitor.plist` 判断，绿色图标表示已启用。首次运行时五项显示内容默认开启，通知默认关闭。受 macOS 原生菜单行为限制，执行操作后菜单会关闭；重新打开即可查看最新开关状态或继续调整。
 
 macOS 没有向普通脚本提供稳定的通知权限查询接口，因此开启流程使用测试通知确认：只有用户选择“已看到”才启用开关；选择“还没有”、取消依赖安装或退出设置流程都会保持关闭。
 
@@ -232,7 +233,7 @@ const WAIT_THRESHOLD_MS = 30000;
 bash scripts/agent-monitor.1s.sh
 
 # 查看守护进程状态
-launchctl print "gui/$(id -u)/openclaw.agent-monitor"
+launchctl print "gui/$(id -u)/com.agentstatusbar.monitor"
 
 # 查看错误日志
 tail -n 50 /tmp/agent-monitor.stderr.log

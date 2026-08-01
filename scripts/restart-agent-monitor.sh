@@ -3,7 +3,7 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd -P "$(dirname "$0")" && pwd)"
 DAEMON_PATH="$SCRIPT_DIR/agent-monitor.js"
-SERVICE="gui/$(id -u)/openclaw.agent-monitor"
+SERVICE="gui/$(id -u)/com.agentstatusbar.monitor"
 PROCESS_SNAPSHOT_FILE="/tmp/agent-statusbar-processes"
 PROCESS_SNAPSHOT_PATH="$SCRIPT_DIR/write-process-snapshot.sh"
 PROCESS_METADATA_FILE="/tmp/agent-statusbar-process-metadata"

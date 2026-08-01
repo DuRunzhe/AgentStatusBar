@@ -50,3 +50,20 @@ test('localizes the waiting for reply status', () => {
   assert.equal(getMessages('zh-Hans').status.waitingReply, '等待回复');
   assert.equal(getMessages('zh-Hant').status.waitingReply, '等待回覆');
 });
+
+test('localizes every start-at-login menu action', () => {
+  const expected = {
+    en: ['Start at login', 'Click to enable start at login', 'Click to disable start at login', 'Open Login Items Settings'],
+    'zh-Hans': ['开机自启', '点击开启开机自启', '点击关闭开机自启', '打开系统登录项设置'],
+    'zh-Hant': ['登入時自動啟動', '點擊開啟自動啟動', '點擊關閉自動啟動', '開啟系統登入項目設定'],
+  };
+  for (const [locale, labels] of Object.entries(expected)) {
+    const menu = getMessages(locale).menu;
+    assert.deepEqual([
+      menu.startup,
+      menu.enableStartup,
+      menu.disableStartup,
+      menu.openLoginItems,
+    ], labels);
+  }
+});

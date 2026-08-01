@@ -47,6 +47,10 @@ const MESSAGES = {
       refreshNow: 'Refresh now',
       restartDaemon: 'Restart monitor daemon',
       settings: 'Settings',
+      startup: 'Start at login',
+      enableStartup: 'Click to enable start at login',
+      disableStartup: 'Click to disable start at login',
+      openLoginItems: 'Open Login Items Settings',
       notifications: 'Notifications',
       enableNotifications: 'Click to enable notifications',
       disableNotifications: 'Click to disable notifications',
@@ -104,6 +108,10 @@ const MESSAGES = {
       refreshNow: '立即刷新',
       restartDaemon: '重启守护进程',
       settings: '设置',
+      startup: '开机自启',
+      enableStartup: '点击开启开机自启',
+      disableStartup: '点击关闭开机自启',
+      openLoginItems: '打开系统登录项设置',
       notifications: '通知',
       enableNotifications: '点击开启通知',
       disableNotifications: '点击关闭通知',
@@ -161,6 +169,10 @@ const MESSAGES = {
       refreshNow: '立即重新整理',
       restartDaemon: '重新啟動監控常駐程式',
       settings: '設定',
+      startup: '登入時自動啟動',
+      enableStartup: '點擊開啟自動啟動',
+      disableStartup: '點擊關閉自動啟動',
+      openLoginItems: '開啟系統登入項目設定',
       notifications: '通知',
       enableNotifications: '點擊開啟通知',
       disableNotifications: '點擊關閉通知',
@@ -249,9 +261,14 @@ function getUiStrings(locale) {
 
 if (require.main === module) {
   const key = process.argv[2];
-  const value = getUiStrings(detectLocale())[key];
-  if (typeof value === 'string') process.stdout.write(value);
-  else process.exitCode = 1;
+  if (key === '--json') {
+    const locale = process.argv[3] || detectLocale();
+    process.stdout.write(JSON.stringify(getUiStrings(locale)));
+  } else {
+    const value = getUiStrings(detectLocale())[key];
+    if (typeof value === 'string') process.stdout.write(value);
+    else process.exitCode = 1;
+  }
 }
 
 module.exports = {
