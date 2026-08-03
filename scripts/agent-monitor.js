@@ -123,7 +123,7 @@ function sendNotification(agentName, instanceLabel, reminderStage, state, pid) {
   const subtitleText = subtitles[reminderStage] || subtitles[0];
   const msg = message(target);
   const subtitle = subtitleText(agentName);
-  sendNativeNotification({ title: 'Agent Monitor', subtitle, message: msg, pid });
+  sendNativeNotification({ title: 'AgentStatusBar', subtitle, message: msg, pid });
 }
 
 let lastProcessSnapshot = [];

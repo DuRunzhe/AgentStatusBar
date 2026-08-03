@@ -22,6 +22,7 @@ function render(data) {
     '/repo/restart-agent-monitor.sh',
     '/repo/display-config.js',
     '/repo/notification-settings.js',
+    '/repo/startup-settings.js',
     '--static',
   ], { encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
@@ -35,6 +36,8 @@ test('renders one working menu without Base64 image payloads', () => {
     display_config: {},
     ui: {
       settings: 'Settings',
+      startup: 'Start at login',
+      enableStartup: 'Enable startup',
       notifications: 'Notifications',
       disableNotifications: 'Disable notifications',
       displayConfig: 'Display options',
@@ -59,6 +62,7 @@ test('renders one working menu without Base64 image payloads', () => {
   assert.doesNotThrow(() => JSON.parse(Buffer.from(config, 'base64').toString('utf8')));
   assert.match(output, /🔵 Codex \(project\): Working \(1m5s\) · gpt-test · 12\.0% \(12k\/100k\)/);
   assert.match(output, /param1=42 terminal=false/);
+  assert.match(output, /Enable startup .*param0=\/repo\/startup-settings\.js param1=toggle/);
   assert.doesNotMatch(output, /\| image=/);
 });
 

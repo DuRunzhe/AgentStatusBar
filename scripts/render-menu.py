@@ -2,6 +2,7 @@
 """Render AgentStatusBar's SwiftBar menu in one JSON parse."""
 
 import json
+import os
 import sys
 import time
 
@@ -45,7 +46,7 @@ def state_emoji(state):
 
 def render_menu(data, paths, now=None, static_icon=False):
     now = time.time() if now is None else now
-    focus_path, node_cmd, restart_path, display_path, notification_path = paths
+    focus_path, node_cmd, restart_path, display_path, notification_path, startup_path = paths
     ui = data.get("ui", {})
     lines = []
 
@@ -115,6 +116,14 @@ def render_menu(data, paths, now=None, static_icon=False):
 
     lines.append("---")
     lines.append(f"{safe_text(ui.get('settings', 'Settings'))} | sfimage=gearshape")
+    startup_enabled = os.path.isfile(os.path.expanduser("~/Library/LaunchAgents/com.agentstatusbar.monitor.plist"))
+    startup_action = ui.get("disableStartup", "Click to disable start at login") if startup_enabled else ui.get("enableStartup", "Click to enable start at login")
+    startup_icon = "checkmark.circle.fill" if startup_enabled else "circle"
+    startup_color = "#34C759" if startup_enabled else "#8E8E93"
+    lines.append(f"--{safe_text(ui.get('startup', 'Start at login'))} | sfimage=power")
+    if node_cmd:
+        lines.append(f"----{safe_text(startup_action)} | bash={node_cmd} param0={startup_path} param1=toggle terminal=false refresh=true sfimage={startup_icon} sfcolor={startup_color}")
+        lines.append(f"----{safe_text(ui.get('openLoginItems', 'Open Login Items Settings'))} | bash={node_cmd} param0={startup_path} param1=open-settings terminal=false sfimage=gearshape")
     notifications = data.get("notifications_enabled") is True
     action = ui.get("disableNotifications", "Click to disable notifications") if notifications else ui.get("enableNotifications", "Click to enable notifications")
     icon = "bell.fill" if notifications else "bell.slash"
@@ -144,12 +153,12 @@ def render_menu(data, paths, now=None, static_icon=False):
 
 
 def main(argv):
-    if len(argv) < 6:
-        raise SystemExit("usage: render-menu.py STATUS FOCUS NODE RESTART DISPLAY NOTIFICATIONS [--static]")
+    if len(argv) < 7:
+        raise SystemExit("usage: render-menu.py STATUS FOCUS NODE RESTART DISPLAY NOTIFICATIONS STARTUP [--static]")
     status_path = argv[0]
     with open(status_path, encoding="utf-8") as status_file:
         data = json.load(status_file)
-    print(render_menu(data, argv[1:6], static_icon="--static" in argv[6:]))
+    print(render_menu(data, argv[1:7], static_icon="--static" in argv[7:]))
 
 
 if __name__ == "__main__":

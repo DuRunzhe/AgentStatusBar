@@ -45,7 +45,7 @@ function buildAppleScript({ title, subtitle, message }) {
 }
 
 function sendNativeNotification(
-  { title = 'Agent Monitor', subtitle, message, pid },
+  { title = 'AgentStatusBar', subtitle, message, pid },
   {
     env = process.env,
     exists = fs.existsSync,
