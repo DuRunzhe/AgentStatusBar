@@ -4,14 +4,14 @@ set -uo pipefail
 OUTPUT_FILE="${1:-/tmp/agent-statusbar-processes}"
 TEMP_FILE="${OUTPUT_FILE}.$$"
 
-if /bin/ps -axo pid=,ppid=,etime=,comm= \
+if /bin/ps -axo pid=,ppid=,etime=,tty=,command= \
   | /usr/bin/awk '
       {
         lines[NR] = $0
         pids[NR] = $1
         ppids[NR] = $2
         parent[$1] = $2
-        command = $4
+        command = $5
         sub(/^.*\//, "", command)
         if (command == "claude" || command == "codex" || command == "opencode") {
           agent_pids[$1] = 1

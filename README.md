@@ -143,6 +143,10 @@ launchctl kickstart -k "gui/$(id -u)/openclaw.agent-monitor"
 
 SwiftBar 每秒刷新一次菜单，守护进程每 2 秒更新一次 `/tmp/agent-status.json`。SwiftBar 同时每 2 秒异步生成精简进程快照，并每 30 秒异步刷新 PID 对应的 cwd/session 元数据；较重的 `lsof` 不在守护进程轮询路径中执行。
 
+### 5. 普通 Codex 确认状态识别
+
+普通方式启动的 Terminal.app Codex 会话在 rollout 只有普通未完成工具调用时，会异步核对该 Codex PID 对应 TTY 当前可见区域底部的完整确认界面。只有确认问题、编号 Yes/No 选项和底部确认提示同时匹配时才判定为等待确认，因此不会仅凭工具运行时间较长产生误判。探测只读取当前需要判断的 Codex TTY，不扫描无关 Terminal 标签页；Terminal.app 未运行时不会启动它。探测不阻塞监控器的 2 秒状态查询，也不需要替换或包装 `codex` 命令。
+
 ## 使用
 
 | 操作 | 方式 |
@@ -173,9 +177,9 @@ macOS 没有向普通脚本提供稳定的通知权限查询接口，因此开�
 ## 数据来源
 
 - **Claude Code**：`~/.claude/sessions/<PID>.json` 提供 PID/session/cwd 配对及原生 `busy` / `idle` / `waiting` 状态；Claude statusline 和 transcript 提供模型、会话路径、上下文窗口及使用率。
-- **Codex CLI**：读取 `~/.codex/sessions/**/rollout-*.jsonl`，只选择主会话 rollout，并使用最新模型和最近一次有效 `last_token_usage`。
+- **Codex CLI**：读取 `~/.codex/sessions/**/rollout-*.jsonl`，并在普通未完成工具调用无法区分执行与确认时，按 PID 对应 TTY 核对 Terminal.app 当前可见区域底部的完整确认界面。
 - **OpenCode**：检测 `opencode` 进程，并优先从 `~/.local/share/opencode/opencode.db` 的当前目录最新会话读取状态、provider/model 和已用 token；上下文窗口来自 `~/.cache/opencode/models.json`，旧版 `storage/*` 保留为模型读取回退。
-- **进程发现**：SwiftBar 后台采集器只写入 agent 主进程及直属子进程；PID 到 cwd/session 的 `lsof` 元数据低频异步刷新，不阻塞状态轮询。
+- **进程发现**：SwiftBar 后台采集器只写入 agent 主进程及直属子进程，并在 2 秒快照中保留 TTY；PID 到 cwd/session 的 `lsof` 元数据低频异步刷新，不阻塞状态轮询。
 
 ## 状态判定
 
@@ -185,11 +189,12 @@ macOS 没有向普通脚本提供稳定的通知权限查询接口，因此开�
 2. 存在尚无同 ID 结果的 Codex `request_user_input` 或 Claude `AskUserQuestion`：**等待回复**。
 3. Claude 原生状态为 `waiting`：**等待确认**；原生状态为 `busy` / `working` / `running`：**进行中**。
 4. Claude 最新 `end_turn` 回复以直接问句结束，且之后没有新的人工消息：**等待回复**。
-5. 存在实际任务子进程：**进行中**（忽略 Codex 常驻的 `codex-code-mode-host`）。
-6. 存在尚无同 ID 结果且显式声明 `sandbox_permissions: "require_escalated"` 的 Codex 工具调用：**等待确认**；其他未完成工具调用：**进行中**。
-7. transcript 中有更晚的任务活动：**进行中**。Claude 的 `turn_duration` / `end_turn` 和 Codex 的 `task_complete` 将任务置为**就绪**；Codex 的 `task_started` 将任务置为**进行中**。
-8. Claude 原生状态为 `idle` / `ready`：**就绪**。
-9. 会话事件无法判断时，使用文件更新时间兜底：最近 30 秒有写入视为**进行中**，否则为**就绪**。
+5. Codex 未完成工具调用显式声明 `sandbox_permissions: "require_escalated"`，或对应 TTY 底部显示完整 Codex 确认界面：**等待确认**。
+6. 存在实际任务子进程：**进行中**（忽略 Codex 常驻的 `codex-code-mode-host` 和 app-server 进程）。
+7. 其他尚无同 ID 结果的工具调用：**进行中**。
+8. transcript 中有更晚的任务活动：**进行中**。Claude 的 `turn_duration` / `end_turn` 和 Codex 的 `task_complete` 将任务置为**就绪**；Codex 的 `task_started` 将任务置为**进行中**。
+9. Claude 原生状态为 `idle` / `ready`：**就绪**。
+10. 会话事件无法判断时，使用文件更新时间兜底：最近 30 秒有写入视为**进行中**，否则为**就绪**。
 
 工具调用不是简单反向计数，而是按 tool ID 独立配对；窗口内只有结果、对应调用位于窗口外时，不会产生 pending。transcript 采用增量读取和事件状态累积，只解析新增内容，避免会话变长后拖慢 Codex/Claude 状态更新。
 
@@ -199,7 +204,8 @@ macOS 没有向普通脚本提供稳定的通知权限查询接口，因此开�
 ps ──> 精简 Agent/直属子进程快照（2 秒）────────────────────────────┐
 lsof ──> PID cwd/session 元数据（30 秒，异步）──────────────────────┤
 Claude sessions/statusline/transcript ──────────────────────────────┤
-Codex rollout / OpenCode storage ────────────────────────────────────┤
+Codex rollout ──> 按需异步探测目标 Terminal TTY 确认界面 ───────────┤
+OpenCode storage ────────────────────────────────────────────────────┤
                                                                      v
                                                          agent-monitor.js
                                                          每 2 秒增量聚合
@@ -236,6 +242,9 @@ launchctl print "gui/$(id -u)/openclaw.agent-monitor"
 
 # 查看错误日志
 tail -n 50 /tmp/agent-monitor.stderr.log
+
+# 查看最近一次 Terminal 确认探测结果、耗时或权限/超时错误
+cat /tmp/agent-statusbar-terminal-state.json
 
 # 重新加载 Claude statusline 集成
 node scripts/install-claude-statusline.js

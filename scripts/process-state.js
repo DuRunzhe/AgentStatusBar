@@ -5,18 +5,30 @@ const path = require('path');
 function parseProcessSnapshot(output) {
   return String(output || '')
     .split('\n')
-    .map(line => line.match(/^\s*(\d+)\s+(\d+)\s+(\S+)\s+(.+?)\s*$/))
+    .map(line => line.match(/^\s*(\d+)\s+(\d+)\s+(\S+)\s+(\S+)\s+(.+?)\s*$/))
     .filter(Boolean)
     .map(match => ({
       pid: Number.parseInt(match[1], 10),
       ppid: Number.parseInt(match[2], 10),
       elapsed_sec: parseElapsedTime(match[3]),
-      command: match[4],
+      tty: match[4] === '??' ? null : `/dev/${match[4]}`,
+      command: match[5],
     }));
 }
 
+function getProcessExecutableName(command) {
+  const executable = String(command || '').trim().split(/\s+/, 1)[0];
+  return path.basename(executable);
+}
+
+function isCodexAppServerProcess(command) {
+  if (getProcessExecutableName(command) !== 'codex') return false;
+  return /(?:^|\s)app-server(?:\s|$)/.test(String(command || ''));
+}
+
 function isIgnoredChildProcess(agentName, command) {
-  return agentName === 'Codex' && path.basename(command.trim()) === 'codex-code-mode-host';
+  return agentName === 'Codex'
+    && getProcessExecutableName(command) === 'codex-code-mode-host';
 }
 
 function hasActiveDescendantProcesses(pid, agentName, processes) {
@@ -64,7 +76,9 @@ function parseElapsedTime(value) {
 }
 
 module.exports = {
+  getProcessExecutableName,
   hasActiveDescendantProcesses,
+  isCodexAppServerProcess,
   isIgnoredChildProcess,
   isPrimaryCodexSessionHeader,
   parseProcessSnapshot,

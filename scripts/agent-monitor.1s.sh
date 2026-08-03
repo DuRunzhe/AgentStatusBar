@@ -17,6 +17,9 @@ PROCESS_REFRESH_SEC=2
 PROCESS_METADATA_FILE="/tmp/agent-statusbar-process-metadata"
 PROCESS_METADATA_LOCK="/tmp/agent-statusbar-process-metadata.lock"
 PROCESS_METADATA_REFRESH_SEC=30
+TERMINAL_STATE_FILE="/tmp/agent-statusbar-terminal-state.json"
+TERMINAL_PROBE_REQUEST_FILE="/tmp/agent-statusbar-terminal-probe-request.json"
+TERMINAL_PROBE_LOCK="/tmp/agent-statusbar-terminal-probe.lock"
 
 refresh_locale_cache() {
   local now mtime language_output apple_locale locale line language temp_file
@@ -87,6 +90,28 @@ refresh_process_metadata() {
   ) </dev/null >/dev/null 2>&1 &
 }
 
+refresh_terminal_state() {
+  local request_mtime state_mtime lock_mtime now
+  [ -f "$TERMINAL_PROBE_REQUEST_FILE" ] || return
+  request_mtime=$(stat -f '%m' "$TERMINAL_PROBE_REQUEST_FILE" 2>/dev/null || echo 0)
+  state_mtime=$(stat -f '%m' "$TERMINAL_STATE_FILE" 2>/dev/null || echo 0)
+  [ "$state_mtime" -ge "$request_mtime" ] && return
+
+  now=$(date +%s)
+  lock_mtime=$(stat -f '%m' "$TERMINAL_PROBE_LOCK" 2>/dev/null || echo 0)
+  if [ "$lock_mtime" -gt 0 ] && [ $((now - lock_mtime)) -ge 10 ]; then
+    /bin/rmdir "$TERMINAL_PROBE_LOCK" 2>/dev/null || true
+  fi
+  /bin/mkdir "$TERMINAL_PROBE_LOCK" 2>/dev/null || return
+
+  (
+    "$NODE_CMD" "$TERMINAL_PROBE_PATH" \
+      --output "$TERMINAL_STATE_FILE" \
+      --request "$TERMINAL_PROBE_REQUEST_FILE"
+    /bin/rmdir "$TERMINAL_PROBE_LOCK" 2>/dev/null || true
+  ) </dev/null >/dev/null 2>&1 &
+}
+
 # 动态查找 node 路径，兼容 Intel/Apple Silicon
 NODE_CMD=$(command -v node 2>/dev/null || echo "/usr/local/bin/node")
 
@@ -110,9 +135,11 @@ DISPLAY_CONFIG_PATH="$SCRIPT_DIR/display-config.js"
 NOTIFICATION_SETTINGS_PATH="$SCRIPT_DIR/notification-settings.js"
 PROCESS_SNAPSHOT_PATH="$SCRIPT_DIR/write-process-snapshot.sh"
 PROCESS_METADATA_PATH="$SCRIPT_DIR/write-process-metadata.sh"
+TERMINAL_PROBE_PATH="$SCRIPT_DIR/terminal-prompt-state.js"
 
 refresh_process_snapshot
 refresh_process_metadata
+refresh_terminal_state
 
 if [ ! -f "$STATUS_FILE" ]; then
   DAEMON_NOT_RUNNING=$("$NODE_CMD" "$I18N_PATH" daemonNotRunning 2>/dev/null || echo "Monitor daemon is not running")

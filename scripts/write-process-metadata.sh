@@ -6,9 +6,10 @@ OUTPUT_FILE="${2:-/tmp/agent-statusbar-process-metadata}"
 TEMP_FILE="${OUTPUT_FILE}.$$"
 
 : > "$TEMP_FILE"
-while read -r pid _ppid _elapsed command; do
+while read -r pid _ppid _elapsed _tty command; do
   [ -n "${pid:-}" ] || continue
-  name="${command##*/}"
+  executable="${command%% *}"
+  name="${executable##*/}"
   case "$name" in
     codex|opencode) ;;
     *) continue ;;

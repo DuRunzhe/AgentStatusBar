@@ -21,6 +21,7 @@ const { readDisplayConfig } = require('./display-config');
 const { acquireProcessLock } = require('./process-lock');
 const { buildStatusSummary } = require('./status-summary');
 const { resolveAgentState } = require('./state-priority');
+const { readFreshTerminalSnapshot } = require('./terminal-prompt-state');
 const { getOpenCodeRuntimeForCwd } = require('./opencode-state');
 const {
   getClaudeModelInLines,
@@ -35,7 +36,9 @@ const {
   getPendingToolUseKindInLines,
 } = require('./tool-state');
 const {
+  getProcessExecutableName,
   hasActiveDescendantProcesses,
+  isCodexAppServerProcess,
   isPrimaryCodexSessionHeader,
   parseProcessSnapshot,
 } = require('./process-state');
@@ -49,6 +52,8 @@ const LOCALE_FILE = '/tmp/agent-statusbar-locale';
 const PROCESS_SNAPSHOT_FILE = '/tmp/agent-statusbar-processes';
 const PROCESS_METADATA_FILE = '/tmp/agent-statusbar-process-metadata';
 const LOCK_FILE = '/tmp/agent-statusbar-monitor.pid';
+const TERMINAL_STATE_FILE = '/tmp/agent-statusbar-terminal-state.json';
+const TERMINAL_PROBE_REQUEST_FILE = '/tmp/agent-statusbar-terminal-probe-request.json';
 const POLL_MS = 2000;               // 轮询间隔
 const WAIT_THRESHOLD_MS = 30000;    // 30s 无活动 → waiting
 const STALE_THRESHOLD_MS = 120000;  // 120s 无活动 → stale
@@ -199,10 +204,24 @@ function refreshProcessMetadata() {
 
 function findProcess(name, processes) {
   const pids = processes
-    .filter(processInfo => path.basename(processInfo.command) === name)
+    .filter(processInfo => getProcessExecutableName(processInfo.command) === name)
+    .filter(processInfo => name !== 'codex' || !isCodexAppServerProcess(processInfo.command))
     .map(processInfo => processInfo.pid)
     .filter(isPidRunning);
   return pids.length > 0 ? pids : null;
+}
+
+function requestTerminalPromptProbe(targetTtys) {
+  if (targetTtys.length === 0) return;
+  try {
+    const request = {
+      updatedAtMs: Date.now(),
+      targetTtys: [...new Set(targetTtys)],
+    };
+    const tempPath = `${TERMINAL_PROBE_REQUEST_FILE}.${process.pid}.tmp`;
+    fs.writeFileSync(tempPath, JSON.stringify(request));
+    fs.renameSync(tempPath, TERMINAL_PROBE_REQUEST_FILE);
+  } catch {}
 }
 
 /**
@@ -479,7 +498,7 @@ function formatLastActivity(ms) {
 // 核心：获取每个 agent 的实例列表
 // ============================================================
 
-function getInstances(agentDef, processes) {
+function getInstances(agentDef, processes, terminalSnapshot = null, terminalProbeTtys = null) {
   const pids = findProcess(agentDef.process, processes);
   const now = Date.now();
 
@@ -528,6 +547,7 @@ function getInstances(agentDef, processes) {
     idx++;
     const mtime = group.sessionFile ? getFileMtime(group.sessionFile) : 0;
     const pidAge = Math.min(...group.pids.map(p => getPidAge(p, processes)));
+    const processStartedAt = now - pidAge * 1000;
     // 提取项目名：从第一个 PID 的 CWD 取最后一段路径
     let projectLabel = agentDef.name;
     const firstPid = group.pids[0];
@@ -548,9 +568,21 @@ function getInstances(agentDef, processes) {
     const nativeState = agentDef.name === 'Claude'
       ? getClaudeNativeState(claudeRuntime)
       : openCodeRuntime?.state || null;
-    const sessionAnalysis = agentDef.name === 'Claude' || agentDef.name === 'Codex'
+    let sessionAnalysis = agentDef.name === 'Claude' || agentDef.name === 'Codex'
       ? analyzeSessionFile(group.sessionFile, agentDef.name)
       : null;
+    const groupTtys = group.pids
+      .map(pid => processes.find(processInfo => processInfo.pid === pid)?.tty)
+      .filter(Boolean);
+    if (agentDef.name === 'Codex' && sessionAnalysis?.pendingKind === 'running') {
+      for (const tty of groupTtys) terminalProbeTtys?.add(tty);
+    }
+    const hasTerminalApproval = agentDef.name === 'Codex'
+      && sessionAnalysis?.pendingKind === 'running'
+      && groupTtys.some(tty => terminalSnapshot?.states?.[tty] === 'approval');
+    if (hasTerminalApproval) {
+      sessionAnalysis = { ...sessionAnalysis, pendingKind: 'approval' };
+    }
     const status = determineState(
       group.pids,
       mtime,
@@ -578,7 +610,6 @@ function getInstances(agentDef, processes) {
           ? getOpenCodeModel(group.sessionFile, path.join(agentDef.sessionDir, 'storage'))
           : null);
     }
-    const processStartedAt = now - pidAge * 1000;
     const lastActivityMs = openCodeRuntime?.lastActivityMs >= processStartedAt
       ? openCodeRuntime.lastActivityMs
       : mtime;
@@ -608,13 +639,16 @@ function poll() {
   const appConfig = readDisplayConfig();
   const agents = [];
   const processes = getProcessSnapshot();
+  const terminalSnapshot = readFreshTerminalSnapshot(TERMINAL_STATE_FILE, now);
+  const terminalProbeTtys = new Set();
 
   for (const agentDef of AGENTS) {
     agents.push({
       name: agentDef.name,
-      instances: getInstances(agentDef, processes),
+      instances: getInstances(agentDef, processes, terminalSnapshot, terminalProbeTtys),
     });
   }
+  requestTerminalPromptProbe([...terminalProbeTtys]);
 
   // ── 汇总数量 ──
   const allWorking = agents.flatMap(a => a.instances).filter(i => i.state === 'working');
