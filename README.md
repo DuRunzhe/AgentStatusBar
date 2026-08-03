@@ -76,12 +76,10 @@ cd AgentStatusBar
 ### 2. 安装 SwiftBar 插件
 
 ```bash
-REPO_DIR="$(pwd)"
-SWIFTBAR_DIR="$HOME/Library/Application Support/SwiftBar/Plugins"
-mkdir -p "$SWIFTBAR_DIR"
-ln -sf "$REPO_DIR/scripts/agent-monitor.1s.sh" \
-  "$SWIFTBAR_DIR/agent-monitor.1s.sh"
+bash scripts/install-swiftbar-plugin.sh
 ```
+
+仓库内唯一的插件源码入口是 `scripts/agent-monitor.sh`。安装器只在 SwiftBar 插件目录创建 `agent-monitor.1s.sh` 软链接，用链接名称声明 1 秒刷新周期，并清理该目录中其他 `agent-monitor.*.sh` 软链接；同名普通文件不会被删除或覆盖。
 
 打开 SwiftBar，并将插件目录设置为：
 
@@ -141,7 +139,7 @@ launchctl enable "gui/$(id -u)/openclaw.agent-monitor"
 launchctl kickstart -k "gui/$(id -u)/openclaw.agent-monitor"
 ```
 
-SwiftBar 每秒刷新一次菜单，守护进程每 2 秒更新一次 `/tmp/agent-status.json`。SwiftBar 同时每 2 秒异步生成精简进程快照，并每 30 秒异步刷新 PID 对应的 cwd/session 元数据；较重的 `lsof` 不在守护进程轮询路径中执行。
+SwiftBar 每秒启动稳定插件入口，并由单个 Python 进程一次读取状态 JSON、渲染顶部状态和完整下拉菜单。守护进程每 2 秒更新一次 `/tmp/agent-status.json`；SwiftBar 同时每 2 秒异步生成精简进程快照，并每 30 秒异步刷新 PID 对应的 cwd/session 元数据。较重的 `lsof` 和按需 Terminal 探测都不阻塞菜单渲染或守护进程轮询。
 
 ### 5. 普通 Codex 确认状态识别
 
@@ -214,8 +212,11 @@ OpenCode storage ─────────────────────
                                                          /tmp/agent-status.json
                                                                      |
                                                                      v
-                                                         agent-monitor.1s.sh
-                                                         SwiftBar 每秒渲染
+                                                         agent-monitor.1s.sh（安装链接）
+                                                                     |
+                                                                     v
+                                                         agent-monitor.sh
+                                                         单 Python 进程每秒渲染
 
 点击 Agent 行 ──> focus-agent-session.js ──> TTY ──> 终端窗口/应用
 ```
@@ -235,7 +236,10 @@ const WAIT_THRESHOLD_MS = 30000;
 
 ```bash
 # 查看 SwiftBar 实际输出
-bash scripts/agent-monitor.1s.sh
+bash scripts/agent-monitor.sh
+
+# 安装或迁移 SwiftBar 插件软链接
+bash scripts/install-swiftbar-plugin.sh
 
 # 查看守护进程状态
 launchctl print "gui/$(id -u)/openclaw.agent-monitor"
@@ -252,12 +256,13 @@ node scripts/install-claude-statusline.js
 # 运行测试与语法检查
 node --test scripts/*.test.js
 node --check scripts/agent-monitor.js
-bash -n scripts/agent-monitor.1s.sh
+bash -n scripts/agent-monitor.sh scripts/install-swiftbar-plugin.sh
+python3 -m py_compile scripts/render-menu.py
 ```
 
 常见问题：
 
-- 菜单栏没有出现：确认 SwiftBar 插件目录及 `agent-monitor.1s.sh` 软链接正确。
+- 菜单栏没有出现：重新运行 `bash scripts/install-swiftbar-plugin.sh`，确认 SwiftBar 插件目录中的 `agent-monitor.1s.sh` 指向仓库的 `scripts/agent-monitor.sh`。
 - 显示“监控守护进程未启动”：执行安装步骤中的 `launchctl bootstrap` / `kickstart` 命令。
 - Claude 没有上下文数据：重新运行安装器，并在 Claude 会话产生一次 statusline 更新。
 - 点击 Agent 没有跳转：检查 macOS“系统设置 → 隐私与安全性 → 自动化”中的终端控制权限。
