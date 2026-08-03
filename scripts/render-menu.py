@@ -9,13 +9,14 @@ from datetime import datetime
 
 
 WAITING_CONFIGS = (
-    "eyJyZW5kZXJpbmdNb2RlIjoiUGFsZXR0ZSIsImNvbG9ycyI6WyIjRkZCMDAwIl0sInNjYWxlIjoibGFyZ2UiLCJ3ZWlnaHQiOiJyZWd1bGFyIn0=",
+    "eyJyZW5kZXJpbmdNb2RlIjoiUGFsZXR0ZSIsImNvbG9ycyI6WyIjRkZCMDAwIl0sInNjYWxlIjoibGFyZ2UiLCJ3ZWlnaHQiOiJib2xkIn0=",
     "eyJyZW5kZXJpbmdNb2RlIjoiUGFsZXR0ZSIsImNvbG9ycyI6WyIjRkZENjBBIl0sInNjYWxlIjoibGFyZ2UiLCJ3ZWlnaHQiOiJib2xkIn0=",
 )
 WORKING_CONFIGS = (
     "eyJyZW5kZXJpbmdNb2RlIjoiUGFsZXR0ZSIsImNvbG9ycyI6WyIjMDA3QUZGIl0sInNjYWxlIjoibGFyZ2UiLCJ3ZWlnaHQiOiJyZWd1bGFyIn0=",
-    "eyJyZW5kZXJpbmdNb2RlIjoiUGFsZXR0ZSIsImNvbG9ycyI6WyIjMDA3QUZGIl0sInNjYWxlIjoibGFyZ2UiLCJ3ZWlnaHQiOiJib2xkIn0=",
+    "eyJyZW5kZXJpbmdNb2RlIjoiUGFsZXR0ZSIsImNvbG9ycyI6WyIjNjREMkZGIl0sInNjYWxlIjoibGFyZ2UiLCJ3ZWlnaHQiOiJyZWd1bGFyIn0=",
 )
+ANIMATED_SYMBOL = "smallcircle.fill.circle"
 
 
 def safe_text(value):
@@ -74,12 +75,10 @@ def render_menu(data, paths, now=None, static_icon=False, icon_frame=None):
     label = summary[2:] if len(summary) > 2 and summary[1] == " " else summary
     if summary.startswith("🟡 "):
         frame = icon_frame if icon_frame is not None else (1 if static_icon else int(now) % 2)
-        symbol = ("smallcircle.fill.circle", "largecircle.fill.circle")[frame]
-        lines.append(f"{label} | sfimage={symbol} sfconfig={WAITING_CONFIGS[frame]}")
+        lines.append(f"{label} | sfimage={ANIMATED_SYMBOL} sfconfig={WAITING_CONFIGS[frame]}")
     elif summary.startswith("🔵 "):
         frame = icon_frame if icon_frame is not None else (0 if static_icon else (int(now) // 2) % 2)
-        symbol = ("smallcircle.fill.circle", "largecircle.fill.circle")[frame]
-        lines.append(f"{label} | sfimage={symbol} sfconfig={WORKING_CONFIGS[frame]}")
+        lines.append(f"{label} | sfimage={ANIMATED_SYMBOL} sfconfig={WORKING_CONFIGS[frame]}")
     elif summary.startswith("⚪ "):
         lines.append(f"{label} | sfimage=circle.fill sfcolor=#8E8E93 color=#8E8E93")
     else:

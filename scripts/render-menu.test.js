@@ -124,7 +124,7 @@ test('renders waiting and stopped states with lightweight symbols', () => {
     }],
   });
 
-  assert.match(output, /^1 awaiting confirmation \| sfimage=largecircle\.fill\.circle/m);
+  assert.match(output, /^1 awaiting confirmation \| sfimage=smallcircle\.fill\.circle/m);
   assert.match(output, /⚪ Claude: Stopped \| color=#8E8E93/);
 });
 
@@ -173,6 +173,28 @@ test('writes both animation frames into an atomic menu cache', () => {
   assert.equal(cache.mode, 'working');
   assert.equal(cache.key, 'status-key');
   assert.match(cache.frame0, /^1 working \| sfimage=smallcircle\.fill\.circle/m);
-  assert.match(cache.frame1, /^1 working \| sfimage=largecircle\.fill\.circle/m);
+  assert.match(cache.frame1, /^1 working \| sfimage=smallcircle\.fill\.circle/m);
+  const frame0Config = JSON.parse(Buffer.from(cache.frame0.match(/sfconfig=(\S+)/)[1], 'base64'));
+  const frame1Config = JSON.parse(Buffer.from(cache.frame1.match(/sfconfig=(\S+)/)[1], 'base64'));
+  assert.equal(frame0Config.weight, 'regular');
+  assert.equal(frame1Config.weight, 'regular');
+  assert.notDeepEqual(frame0Config.colors, frame1Config.colors);
   assert.notEqual(cache.frame0, cache.frame1);
+});
+
+test('keeps both waiting animation frames bold with color-only animation', () => {
+  const cache = renderCache({
+    summary: '🟡 1 awaiting confirmation',
+    display_config: {},
+    agents: [],
+  });
+
+  const frame0Config = JSON.parse(Buffer.from(cache.frame0.match(/sfconfig=(\S+)/)[1], 'base64'));
+  const frame1Config = JSON.parse(Buffer.from(cache.frame1.match(/sfconfig=(\S+)/)[1], 'base64'));
+  assert.equal(cache.mode, 'waiting');
+  assert.match(cache.frame0, /^1 awaiting confirmation \| sfimage=smallcircle\.fill\.circle/m);
+  assert.match(cache.frame1, /^1 awaiting confirmation \| sfimage=smallcircle\.fill\.circle/m);
+  assert.equal(frame0Config.weight, 'bold');
+  assert.equal(frame1Config.weight, 'bold');
+  assert.notDeepEqual(frame0Config.colors, frame1Config.colors);
 });
