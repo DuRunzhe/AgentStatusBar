@@ -29,7 +29,10 @@ const {
   pruneSessionAnalysisCache,
 } = require('./cache-state');
 const { resolveAgentState } = require('./state-priority');
-const { readFreshTerminalSnapshot } = require('./terminal-prompt-state');
+const {
+  hasFreshTerminalApproval,
+  readFreshTerminalSnapshot,
+} = require('./terminal-prompt-state');
 const {
   getOpenCodeRuntimeForCwd,
   pruneOpenCodeRuntimeCache,
@@ -603,7 +606,7 @@ function getInstances(
     }
     const hasTerminalApproval = agentDef.name === 'Codex'
       && sessionAnalysis?.pendingKind === 'running'
-      && groupTtys.some(tty => terminalSnapshot?.states?.[tty] === 'approval');
+      && hasFreshTerminalApproval(terminalSnapshot, groupTtys, mtime);
     if (hasTerminalApproval) {
       sessionAnalysis = { ...sessionAnalysis, pendingKind: 'approval' };
     }

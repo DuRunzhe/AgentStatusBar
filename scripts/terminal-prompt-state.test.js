@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   detectCodexTerminalState,
+  hasFreshTerminalApproval,
   parseTerminalTabs,
   probeTerminalTabs,
   readFreshTerminalSnapshot,
@@ -89,4 +90,23 @@ test('reads only successful and fresh terminal snapshots', () => {
   assert.equal(readFreshTerminalSnapshot(snapshotPath, 7000), null);
   writeSnapshotAtomic(snapshotPath, { version: 1, ok: false, updatedAtMs: 7000, states: {} });
   assert.equal(readFreshTerminalSnapshot(snapshotPath, 7000), null);
+});
+
+test('ignores an approval snapshot older than the latest Codex session activity', () => {
+  const snapshot = {
+    updatedAtMs: 4000,
+    states: { '/dev/ttys016': 'approval' },
+  };
+
+  assert.equal(hasFreshTerminalApproval(snapshot, ['/dev/ttys016'], 4001), false);
+  assert.equal(hasFreshTerminalApproval(snapshot, ['/dev/ttys016'], 4000), true);
+});
+
+test('uses approval only for a matching TTY', () => {
+  const snapshot = {
+    updatedAtMs: 4000,
+    states: { '/dev/ttys016': 'approval' },
+  };
+
+  assert.equal(hasFreshTerminalApproval(snapshot, ['/dev/ttys002'], 3000), false);
 });

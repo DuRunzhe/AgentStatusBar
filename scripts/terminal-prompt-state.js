@@ -115,6 +115,21 @@ function readFreshTerminalSnapshot(filePath, now = Date.now(), maxAgeMs = 5000) 
   }
 }
 
+function hasFreshTerminalApproval(snapshot, targetTtys, lastSessionActivityMs = 0) {
+  if (!snapshot || !Number.isFinite(snapshot.updatedAtMs)) return false;
+
+  // A probe is asynchronous. If the rollout changed after the terminal was
+  // sampled, the visible approval prompt may already have been replaced by
+  // active Codex output on the same TTY. Do not let that stale snapshot turn a
+  // newly-running tool call back into "waiting" until the next probe arrives.
+  if (Number.isFinite(lastSessionActivityMs)
+    && lastSessionActivityMs > snapshot.updatedAtMs) {
+    return false;
+  }
+
+  return targetTtys.some(tty => snapshot.states?.[tty] === 'approval');
+}
+
 function parseCliArgs(argv) {
   const outputIndex = argv.indexOf('--output');
   if (outputIndex < 0 || !argv[outputIndex + 1]) return null;
@@ -170,6 +185,7 @@ if (require.main === module) {
 module.exports = {
   APPROVAL_PROMPT_PATTERNS,
   detectCodexTerminalState,
+  hasFreshTerminalApproval,
   parseTerminalTabs,
   probeTerminalTabs,
   readFreshTerminalSnapshot,
