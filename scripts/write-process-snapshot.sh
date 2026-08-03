@@ -2,7 +2,9 @@
 set -uo pipefail
 
 OUTPUT_FILE="${1:-/tmp/agent-statusbar-processes}"
+ROOTS_FILE="${2:-${OUTPUT_FILE}.roots}"
 TEMP_FILE="${OUTPUT_FILE}.$$"
+TEMP_ROOTS="${ROOTS_FILE}.$$"
 
 if /bin/ps -axo pid=,ppid=,etime=,tty=,command= \
   | /usr/bin/awk '
@@ -29,8 +31,22 @@ if /bin/ps -axo pid=,ppid=,etime=,tty=,command= \
         }
       }
     ' > "$TEMP_FILE"; then
+  /usr/bin/awk '
+    {
+      executable = $5
+      sub(/^.*\//, "", executable)
+      if (executable == "claude" || executable == "codex" || executable == "opencode") {
+        print $1 "\t" executable
+      }
+    }
+  ' "$TEMP_FILE" > "$TEMP_ROOTS"
   /bin/mv -f "$TEMP_FILE" "$OUTPUT_FILE"
+  if [ ! -f "$ROOTS_FILE" ] || ! /usr/bin/cmp -s "$TEMP_ROOTS" "$ROOTS_FILE"; then
+    /bin/mv -f "$TEMP_ROOTS" "$ROOTS_FILE"
+  else
+    /bin/rm -f "$TEMP_ROOTS"
+  fi
 else
-  /bin/rm -f "$TEMP_FILE"
+  /bin/rm -f "$TEMP_FILE" "$TEMP_ROOTS"
   exit 1
 fi

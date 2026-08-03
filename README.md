@@ -8,7 +8,7 @@ macOS 菜单栏里的 AI Coding Agent 状态监控器。通过 SwiftBar 汇总 C
 ```text
 1个等待确认 · 1个等待回复 · 1个进行中 · 1个就绪
 ├── 🟡 Claude (backend): 等待确认 (2h36m) · claude-sonnet-4-5 · 63.0% (126k/200k)
-├── 🟡 Claude (docs): 等待回复 (48m12s) · claude-sonnet-4-5 · 31.5% (63k/200k)
+├── 🟡 Claude (docs): 等待回复 (48m) · claude-sonnet-4-5 · 31.5% (63k/200k)
 ├── 🔵 Codex (AgentStatusBar): 进行中 (1h36m) · gpt-5.6-sol · 44.6% (115k/258k)
 ├── 🟢 Codex (src): 就绪 (70h25m) · gpt-5.6-sol · 33.8% (87k/258k)
 └── [灰色圆点] OpenCode: 已停止
@@ -122,7 +122,7 @@ node scripts/startup-settings.js toggle
 ~/Library/LaunchAgents/com.agentstatusbar.monitor.plist
 ```
 
-SwiftBar 每秒启动稳定插件入口，并由单个 Python 进程一次读取状态 JSON、渲染顶部状态和完整下拉菜单。菜单中的更新时间和不足一小时的运行时长按分钟展示，避免纯秒数变化触发无意义的菜单重建；进行中、等待确认和等待回复的状态动画保持原有频率。守护进程每 2 秒更新一次 `/tmp/agent-status.json`；SwiftBar 同时每 2 秒异步生成精简进程快照，并每 30 秒异步刷新 PID 对应的 cwd/session 元数据。较重的 `lsof` 和按需 Terminal 探测都不阻塞菜单渲染或守护进程轮询。
+SwiftBar 每秒启动稳定插件入口，但 Python 只在状态、配置或分钟级展示数据变化时一次生成两个动画帧并写入缓存；其他刷新直接选择缓存帧输出，进行中、等待确认和等待回复的动画频率保持不变。守护进程仍每 2 秒完成一次状态判断，但只在可见语义变化或跨分钟时原子更新 `/tmp/agent-status.json`。SwiftBar 每 2 秒异步生成精简进程快照；新 PID 或尚未解析的 cwd/session 会快速重试，稳定 PID 每 30 秒批量复核一次。较重的 `lsof` 和按需 Terminal 探测都不阻塞菜单渲染或守护进程轮询。
 
 ### 5. 普通 Codex 确认状态识别
 
@@ -161,7 +161,7 @@ macOS 没有向普通脚本提供稳定的通知权限查询接口，因此开�
 - **Claude Code**：`~/.claude/sessions/<PID>.json` 提供 PID/session/cwd 配对及原生 `busy` / `idle` / `waiting` 状态；Claude statusline 和 transcript 提供模型、会话路径、上下文窗口及使用率。
 - **Codex CLI**：读取 `~/.codex/sessions/**/rollout-*.jsonl`，并在普通未完成工具调用无法区分执行与确认时，按 PID 对应 TTY 核对 Terminal.app 当前可见区域底部的完整确认界面。
 - **OpenCode**：检测 `opencode` 进程，并优先从 `~/.local/share/opencode/opencode.db` 的当前目录最新会话读取状态、provider/model 和已用 token；上下文窗口来自 `~/.cache/opencode/models.json`，旧版 `storage/*` 保留为模型读取回退。
-- **进程发现**：SwiftBar 后台采集器只写入 agent 主进程及直属子进程，并在 2 秒快照中保留 TTY；PID 到 cwd/session 的 `lsof` 元数据低频异步刷新，不阻塞状态轮询。
+- **进程发现**：SwiftBar 后台采集器写入 agent 主进程及全部后代进程，并在 2 秒快照中保留 TTY；PID 到 cwd/session 的 `lsof` 元数据采用新 PID 快速解析、稳定 PID 周期复核的异步策略，不阻塞状态轮询。
 
 ## 状态判定
 
@@ -183,14 +183,14 @@ macOS 没有向普通脚本提供稳定的通知权限查询接口，因此开�
 ## 架构
 
 ```text
-ps ──> 精简 Agent/直属子进程快照（2 秒）────────────────────────────┐
-lsof ──> PID cwd/session 元数据（30 秒，异步）──────────────────────┤
+ps ──> 精简 Agent/全部后代进程快照（2 秒）──────────────────────────┐
+lsof ──> 新 PID 快速解析、稳定 PID 30 秒批量复核（异步）────────────┤
 Claude sessions/statusline/transcript ──────────────────────────────┤
 Codex rollout ──> 按需异步探测目标 Terminal TTY 确认界面 ───────────┤
-OpenCode storage ────────────────────────────────────────────────────┤
+OpenCode SQLite/model catalog ───────────────────────────────────────┤
                                                                      v
                                                          agent-monitor.js
-                                                         每 2 秒增量聚合
+                                                         每 2 秒增量判断
                                                                      |
                                                                      v
                                                          /tmp/agent-status.json
@@ -200,10 +200,87 @@ OpenCode storage ─────────────────────
                                                                      |
                                                                      v
                                                          agent-monitor.sh
-                                                         单 Python 进程每秒渲染
+                                                         选择双帧菜单缓存
 
 点击 Agent 行 ──> focus-agent-session.js ──> TTY ──> 终端窗口/应用
 ```
+
+### 技术方案
+
+#### 1. 采集调度与进程发现
+
+SwiftBar 通过唯一稳定入口 `scripts/agent-monitor.sh` 每秒刷新一次。入口脚本本身不在每次刷新时同步执行完整采集，而是按文件时间、状态标记和目录锁调度后台任务：
+
+| 数据 | 调度策略 | 阻塞菜单渲染 |
+|---|---|---|
+| Agent 进程快照 | 最多每 2 秒一次 | 否 |
+| 新 PID 的 cwd/session 元数据 | 根 PID 列表变化后立即采集 | 否 |
+| 尚未解析成功的 PID | 每 2 秒重试 | 否 |
+| 稳定 PID 的 cwd/session 元数据 | 每 30 秒批量复核 | 否 |
+| Codex Terminal 确认界面 | 仅有歧义状态时按目标 TTY 请求 | 否 |
+| 守护进程状态判断 | 每 2 秒一次 | 独立进程 |
+| SwiftBar 菜单输出 | 每秒选择已有缓存帧 | 是，但只读取小文件 |
+
+`write-process-snapshot.sh` 使用一次 `ps -axo pid,ppid,etime,tty,command` 获取全量进程表，再由 `awk` 找出 Claude、Codex、OpenCode 主进程及其全部后代进程。快照保留 PID、PPID、进程寿命、TTY 和完整命令，供任务子进程判断及终端跳转使用。根 PID 列表只有内容变化时才替换，因此文件 inode 可以作为新建或退出会话的稳定变化键。
+
+Codex 和 OpenCode 的 cwd/session 元数据由 `write-process-metadata.sh` 自适应采集：
+
+- 根 PID inode 与上次已处理值不一致时立即运行，不依赖秒级 mtime，避免新会话与上次刷新恰好发生在同一秒时延迟 30 秒。
+- 需要解析的多个 PID 合并成一次 `lsof -Fn -p pid1,pid2,...`，避免逐 PID 启动 `lsof`。
+- Codex 映射只有同时获得有效 cwd 和仍存在的 rollout 文件才视为成功；OpenCode 获得有效 cwd 即可。
+- 新 PID 尚未生成 rollout 时写入 retry 标记，入口脚本每 2 秒重试；解析成功后删除标记。
+- `lsof` 暂时失败时保留最后一次有效映射，但稳定 PID 仍会在 30 秒后重新验证，因此这不是永久缓存。
+- 已退出 PID 不再写入新的 metadata/state 文件，会随下一轮采集自然清除。
+
+所有后台采集使用 `mkdir` 目录作为互斥锁；进程快照锁、元数据锁、Terminal 探测锁和菜单缓存锁均有陈旧锁回收逻辑。采集结果先写同目录临时文件，再通过 `mv` 原子替换，守护进程不会读到半写入内容。
+
+#### 2. 会话数据与状态聚合
+
+常驻的 `agent-monitor.js` 每 2 秒读取进程快照并聚合三类 Agent。进程元数据按 mtime 增量加载；文件没有变化时复用内存中的解析结果。
+
+- Claude 使用原生 session 状态、statusline 和 transcript，PID/session/cwd 不依赖周期 `lsof`。
+- Codex 将 PID 与 rollout 配对，按事件 ID 匹配工具调用和结果，并累计 `task_started`、`task_complete`、模型及 token 使用情况。
+- OpenCode 按 cwd 查询 SQLite 中最新会话和消息，模型上下文窗口来自本地模型目录；数据库及模型文件签名未变化时复用查询结果。
+- Codex/Claude transcript 使用文件 mtime、大小和上次读取偏移量增量解析，只处理追加事件；文件截断或替换时才重新完整解析。
+
+状态使用“明确的人机交互信号优先于进程活跃信号”的统一优先级：结构化用户输入请求和显式确认请求优先，其次是原生状态、实际任务子进程、未完成工具调用和 transcript 生命周期，最后才使用最近文件活动时间兜底。这样长时间运行的普通命令不会仅因耗时被误判为等待确认。
+
+普通 Terminal.app Codex 在 rollout 只表现为普通未完成工具调用、无法区分执行与确认时，守护进程把目标 TTY 原子写入探测请求文件。SwiftBar 入口发现新请求后异步调用 `terminal-prompt-state.js`，只读取指定 TTY 的当前可见区域；结果超过 5 秒即视为过期。确认界面必须同时匹配确认问题、Yes/No 选项和底部提示，探测失败或 Terminal.app 未运行都不会反向推断为等待确认。
+
+#### 3. 状态发布与通知时序
+
+守护进程仍保持每 2 秒完整判断，检测精度没有因减少磁盘写入而降低。`status-publication.js` 为输出生成语义签名：
+
+- 状态、PID、会话数量、目录标签、模型、上下文用量、语言、显示配置和通知配置变化时立即发布。
+- `uptime_sec` 按菜单实际展示的分钟归一化。
+- 秒级 `timestamp`、精确活动毫秒数和仅由这些字段派生的 detail 不触发写入。
+- 即使没有语义变化，也会在跨分钟时发布一次，使“最后更新”和分钟级时长正常前进。
+- 状态文件不存在或守护进程刚启动时强制发布。
+
+输出先写 `/tmp/agent-status.json.<PID>.tmp`，再原子替换 `/tmp/agent-status.json`。进入等待确认或等待回复时，新的状态文件会先落盘，再调用 macOS 通知服务；即使通知服务短暂阻塞，菜单也不会继续显示旧状态。
+
+#### 4. SwiftBar 菜单缓存与动画
+
+`agent-monitor.sh` 使用以下内容组成菜单缓存键：
+
+- `/tmp/agent-status.json` 的 mtime 和大小；
+- `render-menu.py` 的 mtime 和大小；
+- LaunchAgent plist 的 mtime 和大小。
+
+缓存失效时，Python 只解析一次 JSON，并一次生成 `/tmp/agent-statusbar-menu.0`、`.1`、`.mode` 和 `.key`。两个菜单文件包含相同正文和不同图标帧；`.key` 最后原子写入，只有四个文件都完整存在且键匹配时才算缓存命中。
+
+缓存命中后不再启动 Python，Shell 直接按当前秒选择菜单帧并用 `cat` 输出：等待确认/等待回复每秒切换一帧，进行中每 2 秒切换一帧，静态状态固定使用第 0 帧。因此现有动画频率和状态响应速度保持不变，但状态未变化时不会每秒重新解析 JSON、拼接菜单和构造 Python 进程。缓存缺失或渲染失败时会回退到实时 Python 渲染。
+
+#### 5. 内存与长期运行控制
+
+守护进程只缓存可复用的解析结果，并在每次轮询后回收：
+
+- PID 到 session、PID 到 cwd 的缓存会在 PID 不再存活时立即删除。
+- transcript 分析缓存保护当前活跃会话；非活跃项使用 24 小时 TTL、200 项 LRU 上限，文件已删除时立即移除。
+- OpenCode runtime 查询缓存保护当前活跃 cwd；非活跃项使用 24 小时 TTL、100 项 LRU 上限。
+- 仍可能重新激活的会话分析不会因进程刚退出就立即丢弃，避免频繁退出/恢复造成完整 transcript 重读。
+
+这套策略把稳定状态下的固定成本控制在每 2 秒一次 `ps` 快照、每 30 秒一次稳定 PID 批量 `lsof`、每 2 秒一次内存内状态判断，以及每秒一次小型缓存文件读取；昂贵操作均异步或按变化触发，不占用 SwiftBar 的菜单返回路径。
 
 ## 配置
 

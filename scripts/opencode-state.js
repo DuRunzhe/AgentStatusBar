@@ -9,6 +9,8 @@ const { textEndsWithQuestion } = require('./tool-state');
 const DEFAULT_SQLITE = '/usr/bin/sqlite3';
 const DEFAULT_MODEL_CATALOG = path.join(os.homedir(), '.cache', 'opencode', 'models.json');
 const RUNTIME_CACHE = new Map();
+const RUNTIME_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const RUNTIME_CACHE_MAX_ENTRIES = 100;
 
 function normalizeText(value) {
   if (typeof value !== 'string') return null;
@@ -180,7 +182,10 @@ function getOpenCodeRuntimeForCwd(cwd, dataDir, options = {}) {
   const signature = getRuntimeSignature(databasePath, modelCatalogPath);
   const cacheKey = `${databasePath}:${cwd}`;
   const cached = RUNTIME_CACHE.get(cacheKey);
-  if (cached?.signature === signature) return cached.runtime;
+  if (cached?.signature === signature) {
+    cached.lastAccessMs = Date.now();
+    return cached.runtime;
+  }
 
   const runtime = (options.query || queryOpenCodeRuntime)(
     databasePath,
@@ -188,8 +193,28 @@ function getOpenCodeRuntimeForCwd(cwd, dataDir, options = {}) {
     options.sqlitePath || DEFAULT_SQLITE,
     modelCatalogPath
   );
-  RUNTIME_CACHE.set(cacheKey, { signature, runtime });
+  RUNTIME_CACHE.set(cacheKey, { signature, runtime, cwd, lastAccessMs: Date.now() });
   return runtime;
+}
+
+function pruneOpenCodeRuntimeCache(
+  activeCwds,
+  now = Date.now(),
+  { ttlMs = RUNTIME_CACHE_TTL_MS, maxEntries = RUNTIME_CACHE_MAX_ENTRIES } = {}
+) {
+  const active = activeCwds instanceof Set ? activeCwds : new Set(activeCwds || []);
+  for (const [key, entry] of RUNTIME_CACHE) {
+    if (active.has(entry.cwd)) continue;
+    if (now - (Number(entry.lastAccessMs) || 0) >= ttlMs) RUNTIME_CACHE.delete(key);
+  }
+  if (RUNTIME_CACHE.size <= maxEntries) return;
+  const inactive = [...RUNTIME_CACHE.entries()]
+    .filter(([, entry]) => !active.has(entry.cwd))
+    .sort((a, b) => (a[1].lastAccessMs || 0) - (b[1].lastAccessMs || 0));
+  for (const [key] of inactive) {
+    if (RUNTIME_CACHE.size <= maxEntries) break;
+    RUNTIME_CACHE.delete(key);
+  }
 }
 
 module.exports = {
@@ -199,5 +224,6 @@ module.exports = {
   getOpenCodeRuntimeForCwd,
   getStateFromMessage,
   parseOpenCodeRuntimeRows,
+  pruneOpenCodeRuntimeCache,
   queryOpenCodeRuntime,
 };

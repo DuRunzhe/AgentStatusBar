@@ -20,9 +20,20 @@ const { sendNativeNotification } = require('./notification-delivery');
 const { readDisplayConfig } = require('./display-config');
 const { acquireProcessLock } = require('./process-lock');
 const { buildStatusSummary } = require('./status-summary');
+const {
+  getStatusPublication,
+  shouldPublishStatus,
+} = require('./status-publication');
+const {
+  prunePidCaches,
+  pruneSessionAnalysisCache,
+} = require('./cache-state');
 const { resolveAgentState } = require('./state-priority');
 const { readFreshTerminalSnapshot } = require('./terminal-prompt-state');
-const { getOpenCodeRuntimeForCwd } = require('./opencode-state');
+const {
+  getOpenCodeRuntimeForCwd,
+  pruneOpenCodeRuntimeCache,
+} = require('./opencode-state');
 const {
   getClaudeModelInLines,
   getCodexModelInLines,
@@ -133,6 +144,7 @@ let processMetadata = new Map();
 const PID_SESSION_CACHE = new Map();
 const PID_CWD_CACHE = new Map();
 const SESSION_ANALYSIS_CACHE = new Map();
+let lastStatusPublication = null;
 
 function isPidRunning(pid) {
   try {
@@ -454,7 +466,10 @@ function analyzeSessionFile(sessionFile, agentName) {
   try {
     const stat = fs.statSync(sessionFile);
     const cached = SESSION_ANALYSIS_CACHE.get(sessionFile);
-    if (cached?.mtimeMs === stat.mtimeMs && cached?.size === stat.size) return cached.analysis;
+    if (cached?.mtimeMs === stat.mtimeMs && cached?.size === stat.size) {
+      cached.lastAccessMs = Date.now();
+      return cached.analysis;
+    }
 
     let events;
     let appendedEvents;
@@ -480,6 +495,7 @@ function analyzeSessionFile(sessionFile, agentName) {
       partial,
       events,
       analysis,
+      lastAccessMs: Date.now(),
     });
     return analysis;
   } catch {
@@ -498,7 +514,13 @@ function formatLastActivity(ms) {
 // 核心：获取每个 agent 的实例列表
 // ============================================================
 
-function getInstances(agentDef, processes, terminalSnapshot = null, terminalProbeTtys = null) {
+function getInstances(
+  agentDef,
+  processes,
+  terminalSnapshot = null,
+  terminalProbeTtys = null,
+  cacheUsage = null
+) {
   const pids = findProcess(agentDef.process, processes);
   const now = Date.now();
 
@@ -544,6 +566,7 @@ function getInstances(agentDef, processes, terminalSnapshot = null, terminalProb
 
   return keys.map(key => {
     const group = merged[key];
+    if (group.sessionFile) cacheUsage?.sessionFiles.add(group.sessionFile);
     idx++;
     const mtime = group.sessionFile ? getFileMtime(group.sessionFile) : 0;
     const pidAge = Math.min(...group.pids.map(p => getPidAge(p, processes)));
@@ -565,6 +588,7 @@ function getInstances(agentDef, processes, terminalSnapshot = null, terminalProb
     const openCodeRuntime = agentDef.name === 'OpenCode' && cwd
       ? getOpenCodeRuntimeForCwd(cwd, agentDef.sessionDir)
       : null;
+    if (agentDef.name === 'OpenCode' && cwd) cacheUsage?.openCodeCwds.add(cwd);
     const nativeState = agentDef.name === 'Claude'
       ? getClaudeNativeState(claudeRuntime)
       : openCodeRuntime?.state || null;
@@ -641,14 +665,21 @@ function poll() {
   const processes = getProcessSnapshot();
   const terminalSnapshot = readFreshTerminalSnapshot(TERMINAL_STATE_FILE, now);
   const terminalProbeTtys = new Set();
+  const cacheUsage = { sessionFiles: new Set(), openCodeCwds: new Set() };
 
   for (const agentDef of AGENTS) {
     agents.push({
       name: agentDef.name,
-      instances: getInstances(agentDef, processes, terminalSnapshot, terminalProbeTtys),
+      instances: getInstances(agentDef, processes, terminalSnapshot, terminalProbeTtys, cacheUsage),
     });
   }
   requestTerminalPromptProbe([...terminalProbeTtys]);
+  const liveAgentPids = new Set(agents.flatMap(agent =>
+    agent.instances.flatMap(instance => instance.pids)
+  ));
+  prunePidCaches(PID_SESSION_CACHE, PID_CWD_CACHE, liveAgentPids);
+  pruneSessionAnalysisCache(SESSION_ANALYSIS_CACHE, cacheUsage.sessionFiles, now);
+  pruneOpenCodeRuntimeCache(cacheUsage.openCodeCwds, now);
 
   // ── 汇总数量 ──
   const allWorking = agents.flatMap(a => a.instances).filter(i => i.state === 'working');
@@ -698,11 +729,15 @@ function poll() {
     multiSession: true,
   };
 
-  fs.writeFileSync(STATUS_TEMP_FILE, JSON.stringify(output, null, 2));
-  fs.renameSync(STATUS_TEMP_FILE, STATUS_FILE);
+  const nextPublication = getStatusPublication(output, now);
+  if (shouldPublishStatus(lastStatusPublication, nextPublication, fs.existsSync(STATUS_FILE))) {
+    fs.writeFileSync(STATUS_TEMP_FILE, JSON.stringify(output, null, 2));
+    fs.renameSync(STATUS_TEMP_FILE, STATUS_FILE);
+    lastStatusPublication = nextPublication;
+  }
 
-  // Notifications may block in macOS services. Persist the fresh state first so
-  // SwiftBar never keeps showing the previous state while a notification runs.
+  // A transition into a human-action state changes the publication signature,
+  // so it is persisted before notification delivery can block a macOS service.
   const currentInstanceKeys = new Set();
   for (const agent of agents) {
     for (const inst of agent.instances) {

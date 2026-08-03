@@ -55,7 +55,16 @@ def state_emoji(state):
     }.get(state, "⚪")
 
 
-def render_menu(data, paths, now=None, static_icon=False):
+def animation_mode(data):
+    summary = str(data.get("summary", ""))
+    if summary.startswith("🟡 "):
+        return "waiting"
+    if summary.startswith("🔵 "):
+        return "working"
+    return "static"
+
+
+def render_menu(data, paths, now=None, static_icon=False, icon_frame=None):
     now = time.time() if now is None else now
     focus_path, node_cmd, restart_path, display_path, notification_path, startup_path = paths
     ui = data.get("ui", {})
@@ -64,11 +73,11 @@ def render_menu(data, paths, now=None, static_icon=False):
     summary = safe_text(data.get("summary", "AgentStatusBar"))
     label = summary[2:] if len(summary) > 2 and summary[1] == " " else summary
     if summary.startswith("🟡 "):
-        frame = 1 if static_icon else int(now) % 2
+        frame = icon_frame if icon_frame is not None else (1 if static_icon else int(now) % 2)
         symbol = ("smallcircle.fill.circle", "largecircle.fill.circle")[frame]
         lines.append(f"{label} | sfimage={symbol} sfconfig={WAITING_CONFIGS[frame]}")
     elif summary.startswith("🔵 "):
-        frame = 0 if static_icon else (int(now) // 2) % 2
+        frame = icon_frame if icon_frame is not None else (0 if static_icon else (int(now) // 2) % 2)
         symbol = ("smallcircle.fill.circle", "largecircle.fill.circle")[frame]
         lines.append(f"{label} | sfimage={symbol} sfconfig={WORKING_CONFIGS[frame]}")
     elif summary.startswith("⚪ "):
@@ -164,13 +173,44 @@ def render_menu(data, paths, now=None, static_icon=False):
     return "\n".join(lines)
 
 
+def atomic_write(path, content):
+    temporary = f"{path}.{os.getpid()}.tmp"
+    with open(temporary, "w", encoding="utf-8") as output_file:
+        output_file.write(content)
+        output_file.write("\n")
+    os.replace(temporary, path)
+
+
+def write_menu_cache(data, paths, prefix, cache_key):
+    now = time.time()
+    atomic_write(f"{prefix}.0", render_menu(data, paths, now=now, icon_frame=0))
+    atomic_write(f"{prefix}.1", render_menu(data, paths, now=now, icon_frame=1))
+    atomic_write(f"{prefix}.mode", animation_mode(data))
+    # Publish the key last so readers only accept a fully written cache set.
+    atomic_write(f"{prefix}.key", cache_key)
+
+
 def main(argv):
     if len(argv) < 7:
-        raise SystemExit("usage: render-menu.py STATUS FOCUS NODE RESTART DISPLAY NOTIFICATIONS STARTUP [--static]")
+        raise SystemExit(
+            "usage: render-menu.py STATUS FOCUS NODE RESTART DISPLAY NOTIFICATIONS "
+            "STARTUP [--static | --cache-prefix PREFIX --cache-key KEY]"
+        )
     status_path = argv[0]
     with open(status_path, encoding="utf-8") as status_file:
         data = json.load(status_file)
-    print(render_menu(data, argv[1:7], static_icon="--static" in argv[7:]))
+    options = argv[7:]
+    if "--cache-prefix" in options:
+        prefix_index = options.index("--cache-prefix")
+        key_index = options.index("--cache-key")
+        write_menu_cache(
+            data,
+            argv[1:7],
+            options[prefix_index + 1],
+            options[key_index + 1],
+        )
+        return
+    print(render_menu(data, argv[1:7], static_icon="--static" in options))
 
 
 if __name__ == "__main__":

@@ -8,11 +8,18 @@ LEGACY_SERVICE="gui/$(id -u)/openclaw.agent-monitor"
 SERVICE="$CURRENT_SERVICE"
 PROCESS_SNAPSHOT_FILE="/tmp/agent-statusbar-processes"
 PROCESS_SNAPSHOT_PATH="$SCRIPT_DIR/write-process-snapshot.sh"
+PROCESS_ROOTS_FILE="/tmp/agent-statusbar-process-roots"
 PROCESS_METADATA_FILE="/tmp/agent-statusbar-process-metadata"
 PROCESS_METADATA_PATH="$SCRIPT_DIR/write-process-metadata.sh"
+PROCESS_METADATA_STATE_FILE="/tmp/agent-statusbar-process-metadata-state"
+PROCESS_METADATA_RETRY_FILE="/tmp/agent-statusbar-process-metadata-retry"
 
-/bin/bash "$PROCESS_SNAPSHOT_PATH" "$PROCESS_SNAPSHOT_FILE" || true
-/bin/bash "$PROCESS_METADATA_PATH" "$PROCESS_SNAPSHOT_FILE" "$PROCESS_METADATA_FILE" || true
+/bin/bash "$PROCESS_SNAPSHOT_PATH" "$PROCESS_SNAPSHOT_FILE" "$PROCESS_ROOTS_FILE" || true
+/bin/bash "$PROCESS_METADATA_PATH" \
+  "$PROCESS_SNAPSHOT_FILE" \
+  "$PROCESS_METADATA_FILE" \
+  "$PROCESS_METADATA_STATE_FILE" \
+  "$PROCESS_METADATA_RETRY_FILE" || true
 
 if ! /bin/launchctl print "$CURRENT_SERVICE" >/dev/null 2>&1 \
   && /bin/launchctl print "$LEGACY_SERVICE" >/dev/null 2>&1; then

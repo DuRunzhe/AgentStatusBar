@@ -29,6 +29,34 @@ function render(data) {
   return result.stdout;
 }
 
+function renderCache(data, cacheKey = 'status-key') {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'render-menu-cache-'));
+  const statusPath = path.join(directory, 'status.json');
+  const cachePrefix = path.join(directory, 'menu');
+  fs.writeFileSync(statusPath, JSON.stringify(data));
+  const result = spawnSync(python, [
+    script,
+    statusPath,
+    '/repo/focus-agent-session.js',
+    '/opt/node',
+    '/repo/restart-agent-monitor.sh',
+    '/repo/display-config.js',
+    '/repo/notification-settings.js',
+    '/repo/startup-settings.js',
+    '--cache-prefix',
+    cachePrefix,
+    '--cache-key',
+    cacheKey,
+  ], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  return {
+    frame0: fs.readFileSync(`${cachePrefix}.0`, 'utf8'),
+    frame1: fs.readFileSync(`${cachePrefix}.1`, 'utf8'),
+    mode: fs.readFileSync(`${cachePrefix}.mode`, 'utf8').trim(),
+    key: fs.readFileSync(`${cachePrefix}.key`, 'utf8').trim(),
+  };
+}
+
 function workingData({ timestamp, uptimeSec }) {
   return {
     timestamp,
@@ -134,4 +162,17 @@ test('updates rendered output after a displayed minute boundary', () => {
 
   assert.notEqual(second, first);
   assert.match(second, /Working \(2m\)/);
+});
+
+test('writes both animation frames into an atomic menu cache', () => {
+  const cache = renderCache(workingData({
+    timestamp: '2026-08-03T03:52:01.000Z',
+    uptimeSec: 65,
+  }));
+
+  assert.equal(cache.mode, 'working');
+  assert.equal(cache.key, 'status-key');
+  assert.match(cache.frame0, /^1 working \| sfimage=smallcircle\.fill\.circle/m);
+  assert.match(cache.frame1, /^1 working \| sfimage=largecircle\.fill\.circle/m);
+  assert.notEqual(cache.frame0, cache.frame1);
 });

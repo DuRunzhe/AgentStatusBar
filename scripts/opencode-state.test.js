@@ -11,6 +11,7 @@ const {
   getOpenCodeRuntimeForCwd,
   getStateFromMessage,
   parseOpenCodeRuntimeRows,
+  pruneOpenCodeRuntimeCache,
 } = require('./opencode-state');
 
 test('maps a completed OpenCode assistant response to ready', () => {
@@ -173,4 +174,33 @@ test('caches OpenCode database reads until the database changes', t => {
   fs.utimesSync(modelCatalogPath, nextMtime, nextMtime);
   getOpenCodeRuntimeForCwd('/project', dataDir, options);
   assert.equal(calls, 3);
+});
+
+test('prunes inactive OpenCode runtime entries without removing active cwd data', t => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-statusbar-opencode-prune-'));
+  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(dataDir, 'opencode.db'), 'fixture');
+  const modelCatalogPath = path.join(dataDir, 'models.json');
+  fs.writeFileSync(modelCatalogPath, '{}');
+  const query = (_database, cwd) => ({ cwd });
+  const options = { query, modelCatalogPath };
+
+  getOpenCodeRuntimeForCwd('/active', dataDir, options);
+  getOpenCodeRuntimeForCwd('/inactive', dataDir, options);
+  pruneOpenCodeRuntimeCache(new Set(['/active']), Date.now() + 1000, {
+    ttlMs: 0,
+    maxEntries: 100,
+  });
+
+  let calls = 0;
+  const countingOptions = {
+    ...options,
+    query: (_database, cwd) => {
+      calls++;
+      return { cwd };
+    },
+  };
+  getOpenCodeRuntimeForCwd('/active', dataDir, countingOptions);
+  getOpenCodeRuntimeForCwd('/inactive', dataDir, countingOptions);
+  assert.equal(calls, 1);
 });
