@@ -122,7 +122,7 @@ node scripts/startup-settings.js toggle
 ~/Library/LaunchAgents/com.agentstatusbar.monitor.plist
 ```
 
-SwiftBar 每秒启动稳定插件入口，并由单个 Python 进程一次读取状态 JSON、渲染顶部状态和完整下拉菜单。守护进程每 2 秒更新一次 `/tmp/agent-status.json`；SwiftBar 同时每 2 秒异步生成精简进程快照，并每 30 秒异步刷新 PID 对应的 cwd/session 元数据。较重的 `lsof` 和按需 Terminal 探测都不阻塞菜单渲染或守护进程轮询。
+SwiftBar 每秒启动稳定插件入口，并由单个 Python 进程一次读取状态 JSON、渲染顶部状态和完整下拉菜单。菜单中的更新时间和不足一小时的运行时长按分钟展示，避免纯秒数变化触发无意义的菜单重建；进行中、等待确认和等待回复的状态动画保持原有频率。守护进程每 2 秒更新一次 `/tmp/agent-status.json`；SwiftBar 同时每 2 秒异步生成精简进程快照，并每 30 秒异步刷新 PID 对应的 cwd/session 元数据。较重的 `lsof` 和按需 Terminal 探测都不阻塞菜单渲染或守护进程轮询。
 
 ### 5. 普通 Codex 确认状态识别
 

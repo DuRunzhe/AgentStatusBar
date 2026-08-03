@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import time
+from datetime import datetime
 
 
 WAITING_CONFIGS = (
@@ -28,6 +29,16 @@ def format_tokens(value):
     if value >= 1_000:
         return f"{value / 1_000:.0f}k"
     return str(value)
+
+
+def format_status_time(value, fallback):
+    if value:
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            return parsed.astimezone().strftime("%H:%M")
+        except ValueError:
+            pass
+    return time.strftime("%H:%M", time.localtime(fallback))
 
 
 def visible(config, key):
@@ -85,9 +96,9 @@ def render_menu(data, paths, now=None, static_icon=False):
             uptime = instance.get("uptime_sec", 0)
             if visible(config, "duration") and pids and uptime > 0:
                 if uptime < 60:
-                    line += f" ({uptime}s)"
+                    line += " (<1m)"
                 elif uptime < 3600:
-                    line += f" ({uptime // 60}m{uptime % 60}s)"
+                    line += f" ({uptime // 60}m)"
                 else:
                     line += f" ({uptime // 3600}h{(uptime % 3600) // 60}m)"
             if visible(config, "model") and instance.get("model"):
@@ -146,7 +157,8 @@ def render_menu(data, paths, now=None, static_icon=False):
             lines.append(f"----{safe_text(ui.get(label_key, fallback))} | bash={node_cmd} param0={display_path} param1=toggle param2={key} terminal=false refresh=true{checked}")
 
     lines.append("---")
-    lines.append(f"{safe_text(ui.get('lastUpdated', 'Last updated'))}: {time.strftime('%H:%M:%S', time.localtime(now))} | color=gray size=10")
+    updated_at = format_status_time(data.get("timestamp"), now)
+    lines.append(f"{safe_text(ui.get('lastUpdated', 'Last updated'))}: {updated_at} | color=gray size=10")
     lines.append(f"{safe_text(ui.get('refreshNow', 'Refresh now'))} | refresh=true")
     lines.append(f"{safe_text(ui.get('restartDaemon', 'Restart monitor daemon'))} | bash=/bin/bash param0={restart_path} terminal=false refresh=true")
     return "\n".join(lines)
