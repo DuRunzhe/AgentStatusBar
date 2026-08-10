@@ -24,7 +24,7 @@ function render(data) {
     '/repo/notification-settings.js',
     '/repo/startup-settings.js',
     '--static',
-  ], { encoding: 'utf8' });
+  ], { encoding: 'utf8', env: { ...process.env, HOME: directory } });
   assert.equal(result.status, 0, result.stderr);
   return result.stdout;
 }
@@ -47,7 +47,7 @@ function renderCache(data, cacheKey = 'status-key') {
     cachePrefix,
     '--cache-key',
     cacheKey,
-  ], { encoding: 'utf8' });
+  ], { encoding: 'utf8', env: { ...process.env, HOME: directory } });
   assert.equal(result.status, 0, result.stderr);
   return {
     frame0: fs.readFileSync(`${cachePrefix}.0`, 'utf8'),
