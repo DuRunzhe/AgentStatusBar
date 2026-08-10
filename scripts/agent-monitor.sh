@@ -183,12 +183,13 @@ refresh_terminal_state() {
 }
 
 menu_cache_key() {
-  local status_signature render_signature startup_signature startup_file
+  local status_signature render_signature startup_signature startup_file node_signature
   startup_file="$HOME/Library/LaunchAgents/com.agentstatusbar.monitor.plist"
   status_signature=$(stat -f '%m:%z' "$STATUS_FILE" 2>/dev/null || echo missing)
   render_signature=$(stat -f '%m:%z' "$RENDER_PATH" 2>/dev/null || echo missing)
   startup_signature=$(stat -f '%m:%z' "$startup_file" 2>/dev/null || echo missing)
-  printf '%s|%s|%s\n' "$status_signature" "$render_signature" "$startup_signature"
+  node_signature=${NODE_CMD:-missing}
+  printf '%s|%s|%s|%s\n' "$status_signature" "$render_signature" "$startup_signature" "$node_signature"
 }
 
 refresh_menu_cache() {
