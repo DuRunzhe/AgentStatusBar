@@ -61,7 +61,7 @@ resolve_command() {
 }
 
 SCRIPT_DIR="$(resolve_script_dir "$0")"
-NODE_CMD=$(resolve_command node /opt/homebrew/bin/node /usr/local/bin/node)
+NODE_CMD=$(/bin/bash "$SCRIPT_DIR/resolve-node-path.sh")
 PYTHON_CMD=$(resolve_command python3 /opt/homebrew/bin/python3 /usr/local/bin/python3 /usr/bin/python3)
 DAEMON_PATH="$SCRIPT_DIR/agent-monitor.js"
 RESTART_PATH="$SCRIPT_DIR/restart-agent-monitor.sh"

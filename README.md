@@ -326,6 +326,7 @@ python3 -m py_compile scripts/render-menu.py
 - 菜单栏没有出现：重新运行 `bash scripts/install-swiftbar-plugin.sh`，确认 SwiftBar 插件目录中的 `agent-monitor.1s.sh` 指向仓库的 `scripts/agent-monitor.sh`。
 - 显示“监控守护进程未启动”：点击菜单中的“启动守护进程”，然后通过“设置 → 开机自启”完成持久化安装；也可运行 `node scripts/startup-settings.js toggle` 重新执行引导。
 - 开机自启无法开启：确认仓库没有被移动或删除，再重新执行开启操作；使用 `launchctl print "gui/$(id -u)/com.agentstatusbar.monitor"` 检查服务状态。
+- 使用 NVM 安装 Node 时，SwiftBar 会优先复用当前 LaunchAgent plist 中记录的 Node 绝对路径；该路径不可用时再回退到 PATH 和 Homebrew 的标准安装位置。
 - Claude 没有上下文数据：重新运行安装器，并在 Claude 会话产生一次 statusline 更新。
 - 点击 Agent 没有跳转：检查 macOS“系统设置 → 隐私与安全性 → 自动化”中的终端控制权限。
 - 通知开关无法启用：重新点击“设置 → 通知”，确认允许安装依赖，并在系统通知设置中为 `terminal-notifier` 开启通知和横幅；看到测试通知后选择“已看到”。
