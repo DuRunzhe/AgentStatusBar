@@ -138,10 +138,12 @@ const INSTANCE_TRACKER = {};
 /**
  * 发送 macOS 原生通知
  * @param {string} agentName
- * @param {string} instanceLabel
+ * @param {object} instance
  * @param {number} reminderStage 0=立即, 1=60 秒, 2=3 分钟最后提醒
  */
-function sendNotification(agentName, instanceLabel, reminderStage, state, pid) {
+function sendNotification(agentName, instance, reminderStage, appConfig) {
+  const instanceLabel = instance.label;
+  const state = instance.state;
   const target = instanceLabel === agentName ? agentName : instanceLabel;
   const messages = state === 'waiting_reply' ? TEXT.replyNotificationMessages : TEXT.notificationMessages;
   const subtitles = state === 'waiting_reply' ? TEXT.replyNotificationSubtitles : TEXT.notificationSubtitles;
@@ -149,7 +151,14 @@ function sendNotification(agentName, instanceLabel, reminderStage, state, pid) {
   const subtitleText = subtitles[reminderStage] || subtitles[0];
   const msg = message(target);
   const subtitle = subtitleText(agentName);
-  sendNativeNotification({ title: 'AgentStatusBar', subtitle, message: msg, pid });
+  sendNativeNotification({
+    title: 'AgentStatusBar',
+    subtitle,
+    message: msg,
+    pid: instance.pids?.[0],
+    openUrl: instance.open_url,
+    reuseTabs: appConfig?.browserTabReuse === true,
+  });
 }
 
 let lastProcessSnapshot = [];
@@ -854,7 +863,7 @@ function poll() {
       const next = advanceWaitingNotification(INSTANCE_TRACKER[key], inst.state, now);
       INSTANCE_TRACKER[key] = next.tracker;
       if (next.reminderStage != null) {
-        sendNotification(agent.name, inst.label, next.reminderStage, inst.state, inst.pids[0]);
+        sendNotification(agent.name, inst, next.reminderStage, appConfig);
       }
     }
   }

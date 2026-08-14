@@ -26,13 +26,49 @@ function buildFocusCommand(pid, nodePath, focusPath) {
   return `${shellQuote(nodePath)} ${shellQuote(focusPath)} ${pid}`;
 }
 
-function buildTerminalNotifierArgs({ title, subtitle, message, pid, nodePath, focusPath }) {
+function buildWebFocusCommand(openUrl, nodePath, focusWebPath, reuseTabs = false) {
+  const url = String(openUrl || '').trim();
+  if (!url) throw new Error('Invalid web URL');
+  const reuseArg = reuseTabs ? ` ${shellQuote('reuse-tabs')}` : '';
+  return `${shellQuote(nodePath)} ${shellQuote(focusWebPath)} ${shellQuote(url)}${reuseArg}`;
+}
+
+function buildNotificationExecuteCommand({
+  pid,
+  openUrl,
+  reuseTabs = false,
+  nodePath,
+  focusPath,
+  focusWebPath,
+}) {
+  if (openUrl) return buildWebFocusCommand(openUrl, nodePath, focusWebPath, reuseTabs);
+  return buildFocusCommand(pid, nodePath, focusPath);
+}
+
+function buildTerminalNotifierArgs({
+  title,
+  subtitle,
+  message,
+  pid,
+  openUrl,
+  reuseTabs = false,
+  nodePath,
+  focusPath,
+  focusWebPath,
+}) {
   return [
     '-title', title,
     '-subtitle', subtitle,
     '-message', message,
     '-sound', 'default',
-    '-execute', buildFocusCommand(pid, nodePath, focusPath),
+    '-execute', buildNotificationExecuteCommand({
+      pid,
+      openUrl,
+      reuseTabs,
+      nodePath,
+      focusPath,
+      focusWebPath,
+    }),
   ];
 }
 
@@ -45,13 +81,14 @@ function buildAppleScript({ title, subtitle, message }) {
 }
 
 function sendNativeNotification(
-  { title = 'AgentStatusBar', subtitle, message, pid },
+  { title = 'AgentStatusBar', subtitle, message, pid, openUrl, reuseTabs = false },
   {
     env = process.env,
     exists = fs.existsSync,
     run = execFile,
     nodePath = process.execPath,
     focusPath = path.join(__dirname, 'focus-agent-session.js'),
+    focusWebPath = path.join(__dirname, 'focus-web-url.js'),
   } = {}
 ) {
   const options = { encoding: 'utf8', timeout: 3000 };
@@ -65,7 +102,9 @@ function sendNativeNotification(
   };
 
   const notifierPath = findTerminalNotifier(env, exists);
-  if (!notifierPath || !Number.isInteger(pid) || pid <= 0) {
+  const hasPidAction = Number.isInteger(pid) && pid > 0;
+  const hasWebAction = typeof openUrl === 'string' && openUrl.trim();
+  if (!notifierPath || (!hasPidAction && !hasWebAction)) {
     fallback();
     return 'osascript';
   }
@@ -75,8 +114,11 @@ function sendNativeNotification(
     subtitle,
     message,
     pid,
+    openUrl,
+    reuseTabs,
     nodePath,
     focusPath,
+    focusWebPath,
   });
   run(notifierPath, args, options, error => {
     if (error) fallback();
@@ -87,7 +129,9 @@ function sendNativeNotification(
 module.exports = {
   buildAppleScript,
   buildFocusCommand,
+  buildNotificationExecuteCommand,
   buildTerminalNotifierArgs,
+  buildWebFocusCommand,
   findTerminalNotifier,
   sendNativeNotification,
   shellQuote,

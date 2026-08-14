@@ -5,7 +5,9 @@ const assert = require('node:assert/strict');
 const {
   buildAppleScript,
   buildFocusCommand,
+  buildNotificationExecuteCommand,
   buildTerminalNotifierArgs,
+  buildWebFocusCommand,
   findTerminalNotifier,
   sendNativeNotification,
 } = require('./notification-delivery');
@@ -43,6 +45,32 @@ test('builds a clickable terminal-notifier request', () => {
   ]);
 });
 
+test('builds a browser focus command for web agent notifications', () => {
+  assert.equal(
+    buildWebFocusCommand(
+      'http://127.0.0.1:3080/',
+      '/usr/local/bin/node',
+      "/repo/scripts/focus-web-url.js",
+      true
+    ),
+    "'/usr/local/bin/node' '/repo/scripts/focus-web-url.js' 'http://127.0.0.1:3080/' 'reuse-tabs'"
+  );
+});
+
+test('prefers web focus over pid focus for notification clicks', () => {
+  assert.equal(
+    buildNotificationExecuteCommand({
+      pid: 321,
+      openUrl: 'http://127.0.0.1:3080/',
+      reuseTabs: true,
+      nodePath: '/usr/local/bin/node',
+      focusPath: '/repo/scripts/focus-agent-session.js',
+      focusWebPath: '/repo/scripts/focus-web-url.js',
+    }),
+    "'/usr/local/bin/node' '/repo/scripts/focus-web-url.js' 'http://127.0.0.1:3080/' 'reuse-tabs'"
+  );
+});
+
 test('escapes notification text in the osascript fallback', () => {
   assert.equal(
     buildAppleScript({ title: 'Agent "Monitor"', subtitle: 'Claude', message: 'A \\ B' }),
@@ -70,6 +98,31 @@ test('uses terminal-notifier and falls back to osascript after a send failure', 
   assert.equal(delivery, 'terminal-notifier');
   assert.equal(calls[0].command, '/opt/homebrew/bin/terminal-notifier');
   assert.equal(calls[1].command, '/usr/bin/osascript');
+});
+
+test('uses terminal-notifier for web notification clicks without a pid', () => {
+  const calls = [];
+  const delivery = sendNativeNotification({
+    subtitle: 'DeepSeek Harness 等待确认',
+    message: 'DeepSeek Harness 已进入等待确认',
+    openUrl: 'http://127.0.0.1:3080/',
+    reuseTabs: true,
+  }, {
+    exists: value => value === '/opt/homebrew/bin/terminal-notifier',
+    run: (command, args, _options, callback) => {
+      calls.push({ command, args });
+      callback(null);
+    },
+    nodePath: '/usr/local/bin/node',
+    focusWebPath: '/repo/scripts/focus-web-url.js',
+  });
+
+  assert.equal(delivery, 'terminal-notifier');
+  assert.equal(calls[0].command, '/opt/homebrew/bin/terminal-notifier');
+  assert.deepEqual(calls[0].args.slice(-2), [
+    '-execute',
+    "'/usr/local/bin/node' '/repo/scripts/focus-web-url.js' 'http://127.0.0.1:3080/' 'reuse-tabs'",
+  ]);
 });
 
 test('uses osascript directly when terminal-notifier is unavailable', () => {
