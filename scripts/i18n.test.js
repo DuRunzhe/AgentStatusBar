@@ -67,3 +67,39 @@ test('localizes every start-at-login menu action', () => {
     ], labels);
   }
 });
+
+test('localizes every browser tab reuse menu action', () => {
+  const expected = {
+    en: [
+      'Browser tabs',
+      'Click to enable browser tab reuse',
+      'Click to disable browser tab reuse',
+      'Open Automation Settings',
+      'Requires browser Automation permission',
+    ],
+    'zh-Hans': [
+      '浏览器标签页',
+      '点击开启浏览器标签页复用',
+      '点击关闭浏览器标签页复用',
+      '打开系统自动化设置',
+      '需要浏览器自动化权限',
+    ],
+    'zh-Hant': [
+      '瀏覽器分頁',
+      '點擊開啟瀏覽器分頁重用',
+      '點擊關閉瀏覽器分頁重用',
+      '開啟系統自動化設定',
+      '需要瀏覽器自動化權限',
+    ],
+  };
+  for (const [locale, labels] of Object.entries(expected)) {
+    const menu = getMessages(locale).menu;
+    assert.deepEqual([
+      menu.browserTabs,
+      menu.enableBrowserTabReuse,
+      menu.disableBrowserTabReuse,
+      menu.openAutomationSettings,
+      menu.browserTabReusePermission,
+    ], labels);
+  }
+});

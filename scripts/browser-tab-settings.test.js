@@ -7,11 +7,31 @@ const os = require('os');
 const path = require('path');
 const { readDisplayConfig, setBrowserTabReuseEnabled } = require('./display-config');
 const {
+  COPY,
   buildAutomationProbeScript,
   configureBrowserTabReuse,
   openAutomationSettings,
   probeBrowserAutomation,
 } = require('./browser-tab-settings');
+
+test('provides complete localized copy for browser tab reuse setup', () => {
+  const expectedKeys = Object.keys(COPY.en).sort();
+  assert.deepEqual(Object.keys(COPY['zh-Hans']).sort(), expectedKeys);
+  assert.deepEqual(Object.keys(COPY['zh-Hant']).sort(), expectedKeys);
+
+  assert.equal(COPY.en.setupTitle, 'Reuse browser tabs');
+  assert.equal(COPY['zh-Hans'].setupTitle, '复用浏览器标签页');
+  assert.equal(COPY['zh-Hant'].setupTitle, '重用瀏覽器分頁');
+  assert.equal(COPY['zh-Hans'].successMessage, '浏览器标签页复用已开启。');
+  assert.equal(COPY['zh-Hant'].successMessage, '瀏覽器分頁重用已開啟。');
+
+  for (const [locale, copy] of Object.entries(COPY)) {
+    for (const [key, value] of Object.entries(copy)) {
+      assert.equal(typeof value, 'string', `${locale}.${key}`);
+      assert.notEqual(value.trim(), '', `${locale}.${key}`);
+    }
+  }
+});
 
 test('builds an automation probe for supported browsers', () => {
   const script = buildAutomationProbeScript();
