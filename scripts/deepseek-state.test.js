@@ -6,12 +6,16 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const {
+  SESSION_DECODE_COOLDOWN_MS,
+  buildZstdTailCommand,
   encodeProjectKey,
   findLatestSessionFile,
   getDeepSeekContextUsage,
   getDeepSeekModel,
   getDeepSeekRuntimeForCwd,
   getDeepSeekSessionSignals,
+  parseSessionSignals,
+  readFileTail,
 } = require('./deepseek-state');
 
 function writeSession(root, cwd, sessionId, mtimeMs) {
@@ -270,4 +274,98 @@ test('returns DeepSeek model and context usage in runtime data', t => {
     window_tokens: 1000000,
     percent: 20,
   });
+});
+
+test('builds a zstd tail pipeline that quotes the session path', () => {
+  const command = buildZstdTailCommand('/usr/local/bin/zstd', '/tmp/a b/session.jsonl.zstd');
+  assert.match(command, /^\/usr\/local\/bin\/zstd -dc '\/tmp\/a b\/session\.jsonl\.zstd' \| \/usr\/bin\/tail -c 262144$/);
+});
+
+test('reads only the tail of a plain-text session file', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-statusbar-dsh-tail-test-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const file = path.join(root, 'session.jsonl');
+  const marker = 'HEAD-MARKER-';
+  const head = `${marker}${'x'.repeat(500_000)}`;
+  const tail = JSON.stringify({
+    type: 'assistant/message',
+    data: { message: { source: { model: 'tail-model' } } },
+  });
+  fs.writeFileSync(file, `${head}\n${tail}`);
+
+  const read = readFileTail(file, 256 * 1024);
+  assert.ok(read.length <= 256 * 1024);
+  assert.ok(read.includes('tail-model'));
+  assert.ok(!read.includes(marker));
+});
+
+test('extracts model and pending approvals from session log text', () => {
+  const signals = parseSessionSignals([
+    JSON.stringify({ type: 'approval/asked', data: { id: 'approval-9' } }),
+    JSON.stringify({ type: 'assistant/message', data: { message: { source: { model: 'deepseek-v4-pro' } } } }),
+  ].join('\n'));
+  assert.equal(signals.model, 'deepseek-v4-pro');
+  assert.equal(signals.pendingKind, 'approval');
+});
+
+test('reuses cached session signals while the file is unchanged', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-statusbar-dsh-cache-hit-test-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const file = path.join(root, 'session.jsonl.zstd');
+  fs.writeFileSync(file, 'compressed-placeholder');
+  const stdout = JSON.stringify({
+    type: 'assistant/message',
+    data: { message: { source: { model: 'cached-model' } } },
+  });
+  let calls = 0;
+  const run = () => { calls += 1; return { status: 0, stdout }; };
+
+  assert.equal(getDeepSeekSessionSignals(file, run, { now: 1000 }).model, 'cached-model');
+  assert.equal(getDeepSeekSessionSignals(file, run, { now: 3000 }).model, 'cached-model');
+  assert.equal(calls, 1);
+});
+
+test('skips re-decoding while the session file changes within the cooldown window', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-statusbar-dsh-cooldown-test-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const file = path.join(root, 'session.jsonl.zstd');
+  fs.writeFileSync(file, 'compressed-placeholder-v1');
+  const runV1 = () => ({ status: 0, stdout: JSON.stringify({
+    type: 'assistant/message',
+    data: { message: { source: { model: 'model-v1' } } },
+  }) });
+
+  const t0 = 1000;
+  // 首次解码
+  assert.equal(getDeepSeekSessionSignals(file, runV1, { now: t0 }).model, 'model-v1');
+  // 文件变化但仍在冷却窗口内 → 沿用缓存，不重新解压
+  fs.writeFileSync(file, 'compressed-placeholder-v2');
+  assert.equal(
+    getDeepSeekSessionSignals(file, runV1, { now: t0 + SESSION_DECODE_COOLDOWN_MS - 1 }).model,
+    'model-v1'
+  );
+  // 超过冷却窗口 → 重新解压得到最新信号
+  const runV2 = () => ({ status: 0, stdout: JSON.stringify({
+    type: 'assistant/message',
+    data: { message: { source: { model: 'model-v2' } } },
+  }) });
+  assert.equal(
+    getDeepSeekSessionSignals(file, runV2, { now: t0 + SESSION_DECODE_COOLDOWN_MS + 1 }).model,
+    'model-v2'
+  );
+});
+
+test('falls back to cached signals when the session file is temporarily unreadable', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-statusbar-dsh-unreadable-test-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const file = path.join(root, 'session.jsonl.zstd');
+  fs.writeFileSync(file, 'compressed-placeholder');
+  const stdout = JSON.stringify({
+    type: 'assistant/message',
+    data: { message: { source: { model: 'persisted-model' } } },
+  });
+
+  assert.equal(getDeepSeekSessionSignals(file, () => ({ status: 0, stdout }), { now: 1000 }).model, 'persisted-model');
+  fs.rmSync(file);
+  assert.equal(getDeepSeekSessionSignals(file, () => ({ status: 0, stdout }), { now: 2000 }).model, 'persisted-model');
 });

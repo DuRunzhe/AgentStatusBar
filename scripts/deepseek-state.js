@@ -13,6 +13,12 @@ const ZSTD_COMMANDS = [
   '/opt/homebrew/bin/zstd',
   '/usr/local/bin/zstd',
 ];
+// 只保留 session 文件尾部做解析，限制内存与 JSON 解析成本
+const SESSION_TAIL_BYTES = 256 * 1024;
+const SESSION_TAIL_LINES = 500;
+// 活跃流式期间 session 文件每秒都在变，冷却窗口内不重新解压，
+// 模型/审批信号几秒的延迟对状态栏可接受，换取大幅降低 CPU 开销
+const SESSION_DECODE_COOLDOWN_MS = 2000;
 
 function encodeProjectKey(cwd) {
   if (!cwd) return '_no-cwd';
@@ -124,11 +130,19 @@ function getDeepSeekContextUsage(stats) {
   };
 }
 
+function shellQuote(value) {
+  return `'${String(value).replaceAll("'", "'\\''")}'`;
+}
+
+function buildZstdTailCommand(command, sessionFile) {
+  return `${command} -dc ${shellQuote(sessionFile)} | /usr/bin/tail -c ${SESSION_TAIL_BYTES}`;
+}
+
 function runZstdDecode(sessionFile, run) {
   for (const command of ZSTD_COMMANDS) {
-    const result = run(command, ['-dc', sessionFile], {
+    const result = run('/bin/sh', ['-c', buildZstdTailCommand(command, sessionFile)], {
       encoding: 'utf8',
-      maxBuffer: 16 * 1024 * 1024,
+      maxBuffer: SESSION_TAIL_BYTES * 4,
       stdio: ['ignore', 'pipe', 'ignore'],
       timeout: 2000,
     });
@@ -137,10 +151,23 @@ function runZstdDecode(sessionFile, run) {
   return '';
 }
 
+function readFileTail(file, maxBytes) {
+  const fd = fs.openSync(file, 'r');
+  try {
+    const size = fs.fstatSync(fd).size;
+    const length = Math.min(size, maxBytes);
+    const buffer = Buffer.alloc(length);
+    fs.readSync(fd, buffer, 0, length, size - length);
+    return buffer.toString('utf8');
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 function readDeepSeekSessionText(sessionFile, run = spawnSync) {
   if (!sessionFile) return '';
   try {
-    if (sessionFile.endsWith('.jsonl')) return fs.readFileSync(sessionFile, 'utf8');
+    if (sessionFile.endsWith('.jsonl')) return readFileTail(sessionFile, SESSION_TAIL_BYTES);
     if (!sessionFile.endsWith('.jsonl.zstd')) return '';
     return runZstdDecode(sessionFile, run);
   } catch {
@@ -148,42 +175,53 @@ function readDeepSeekSessionText(sessionFile, run = spawnSync) {
   }
 }
 
-function getDeepSeekSessionSignals(sessionFile, run = spawnSync) {
+function parseSessionSignals(text) {
+  let model = null;
+  const pendingApprovals = new Set();
+  const lines = String(text || '').trim().split('\n').slice(-SESSION_TAIL_LINES);
+  for (const line of lines) {
+    try {
+      const event = JSON.parse(line);
+      if (event?.type === 'approval/asked' && typeof event?.data?.id === 'string') {
+        pendingApprovals.add(event.data.id);
+      } else if (event?.type === 'approval/decided' && typeof event?.data?.id === 'string') {
+        pendingApprovals.delete(event.data.id);
+      }
+      const candidate = event?.data?.message?.source?.model;
+      if (event?.type === 'assistant/message' && typeof candidate === 'string' && candidate.trim()) {
+        model = candidate.trim();
+      }
+    } catch {}
+  }
+  return { model, pendingKind: pendingApprovals.size > 0 ? 'approval' : null };
+}
+
+function getDeepSeekSessionSignals(sessionFile, run = spawnSync, { now = Date.now() } = {}) {
   try {
     const stat = fs.statSync(sessionFile);
     const cached = SESSION_SIGNAL_CACHE.get(sessionFile);
-    if (cached?.mtimeMs === stat.mtimeMs && cached?.size === stat.size) return cached.signals;
 
-    let model = null;
-    const pendingApprovals = new Set();
-    const lines = readDeepSeekSessionText(sessionFile, run).trim().split('\n').slice(-500);
-    for (const line of lines) {
-      try {
-        const event = JSON.parse(line);
-        if (event?.type === 'approval/asked' && typeof event?.data?.id === 'string') {
-          pendingApprovals.add(event.data.id);
-        } else if (event?.type === 'approval/decided' && typeof event?.data?.id === 'string') {
-          pendingApprovals.delete(event.data.id);
-        }
-        const candidate = event?.data?.message?.source?.model;
-        if (event?.type === 'assistant/message' && typeof candidate === 'string' && candidate.trim()) {
-          model = candidate.trim();
-        }
-      } catch {}
+    // 文件未变化：直接复用缓存，避免无谓解压
+    if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+      return cached.signals;
     }
-    const signals = {
-      model,
-      pendingKind: pendingApprovals.size > 0 ? 'approval' : null,
-    };
+
+    // 文件在变但处于冷却窗口：沿用缓存，限制活跃流式期间的全量解压频率
+    if (cached && now - cached.checkedAtMs < SESSION_DECODE_COOLDOWN_MS) {
+      return cached.signals;
+    }
+
+    const signals = parseSessionSignals(readDeepSeekSessionText(sessionFile, run));
     SESSION_SIGNAL_CACHE.set(sessionFile, {
-      checkedAtMs: Date.now(),
+      checkedAtMs: now,
       mtimeMs: stat.mtimeMs,
       size: stat.size,
       signals,
     });
     return signals;
   } catch {
-    return { model: null, pendingKind: null };
+    // 文件瞬时不可读时沿用上次缓存，避免状态抖动
+    return SESSION_SIGNAL_CACHE.get(sessionFile)?.signals || { model: null, pendingKind: null };
   }
 }
 
@@ -201,7 +239,7 @@ function getDeepSeekRuntimeForCwd(cwd, {
 
   const lastActivityMs = getFileMtimeMs(sessionFile);
   const stats = readProjectionStats(getSessionIdFromFile(sessionFile), dshHome);
-  const signals = getDeepSeekSessionSignals(sessionFile, run);
+  const signals = getDeepSeekSessionSignals(sessionFile, run, { now });
   const baseRuntime = {
     lastActivityMs,
     sessionFile,
@@ -227,6 +265,8 @@ function getDeepSeekRuntimeForCwd(cwd, {
 }
 
 module.exports = {
+  SESSION_DECODE_COOLDOWN_MS,
+  buildZstdTailCommand,
   encodeProjectKey,
   findLatestSessionFile,
   findLatestSessionFileAcrossProjects,
@@ -235,6 +275,8 @@ module.exports = {
   getDeepSeekRuntimeForCwd,
   getDeepSeekSessionSignals,
   getSessionIdFromFile,
+  parseSessionSignals,
+  readFileTail,
   readProjectionStats,
   readDeepSeekSessionText,
   runZstdDecode,
