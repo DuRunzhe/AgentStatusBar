@@ -7,7 +7,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 const DEFAULT_DSH_HOME = path.join(os.homedir(), '.dsh');
-const SESSION_MODEL_CACHE = new Map();
+const SESSION_SIGNAL_CACHE = new Map();
 const ZSTD_COMMANDS = [
   'zstd',
   '/opt/homebrew/bin/zstd',
@@ -148,35 +148,47 @@ function readDeepSeekSessionText(sessionFile, run = spawnSync) {
   }
 }
 
-function getDeepSeekModel(sessionFile, run = spawnSync) {
+function getDeepSeekSessionSignals(sessionFile, run = spawnSync) {
   try {
     const stat = fs.statSync(sessionFile);
-    const cached = SESSION_MODEL_CACHE.get(sessionFile);
-    if (cached && Date.now() - cached.checkedAtMs < 60_000) return cached.model;
-    if (cached?.mtimeMs === stat.mtimeMs && cached?.size === stat.size) return cached.model;
+    const cached = SESSION_SIGNAL_CACHE.get(sessionFile);
+    if (cached?.mtimeMs === stat.mtimeMs && cached?.size === stat.size) return cached.signals;
 
     let model = null;
+    const pendingApprovals = new Set();
     const lines = readDeepSeekSessionText(sessionFile, run).trim().split('\n').slice(-500);
-    for (let i = lines.length - 1; i >= 0; i--) {
+    for (const line of lines) {
       try {
-        const event = JSON.parse(lines[i]);
+        const event = JSON.parse(line);
+        if (event?.type === 'approval/asked' && typeof event?.data?.id === 'string') {
+          pendingApprovals.add(event.data.id);
+        } else if (event?.type === 'approval/decided' && typeof event?.data?.id === 'string') {
+          pendingApprovals.delete(event.data.id);
+        }
         const candidate = event?.data?.message?.source?.model;
         if (event?.type === 'assistant/message' && typeof candidate === 'string' && candidate.trim()) {
           model = candidate.trim();
-          break;
         }
       } catch {}
     }
-    SESSION_MODEL_CACHE.set(sessionFile, {
+    const signals = {
+      model,
+      pendingKind: pendingApprovals.size > 0 ? 'approval' : null,
+    };
+    SESSION_SIGNAL_CACHE.set(sessionFile, {
       checkedAtMs: Date.now(),
       mtimeMs: stat.mtimeMs,
       size: stat.size,
-      model,
+      signals,
     });
-    return model;
+    return signals;
   } catch {
-    return null;
+    return { model: null, pendingKind: null };
   }
+}
+
+function getDeepSeekModel(sessionFile, run = spawnSync) {
+  return getDeepSeekSessionSignals(sessionFile, run).model;
 }
 
 function getDeepSeekRuntimeForCwd(cwd, {
@@ -189,13 +201,18 @@ function getDeepSeekRuntimeForCwd(cwd, {
 
   const lastActivityMs = getFileMtimeMs(sessionFile);
   const stats = readProjectionStats(getSessionIdFromFile(sessionFile), dshHome);
+  const signals = getDeepSeekSessionSignals(sessionFile, run);
   const baseRuntime = {
     lastActivityMs,
     sessionFile,
-    model: getDeepSeekModel(sessionFile, run),
+    model: signals.model,
     contextUsage: getDeepSeekContextUsage(stats),
   };
   if (!stats) return { state: null, ...baseRuntime };
+
+  if (signals.pendingKind === 'approval') {
+    return { state: 'waiting', ...baseRuntime };
+  }
 
   const hasPendingCalls = Object.keys(stats.pendingCalls).length > 0;
   if (stats.openStep || hasPendingCalls) {
@@ -216,6 +233,7 @@ module.exports = {
   getDeepSeekContextUsage,
   getDeepSeekModel,
   getDeepSeekRuntimeForCwd,
+  getDeepSeekSessionSignals,
   getSessionIdFromFile,
   readProjectionStats,
   readDeepSeekSessionText,

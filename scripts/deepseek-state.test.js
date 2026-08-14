@@ -11,6 +11,7 @@ const {
   getDeepSeekContextUsage,
   getDeepSeekModel,
   getDeepSeekRuntimeForCwd,
+  getDeepSeekSessionSignals,
 } = require('./deepseek-state');
 
 function writeSession(root, cwd, sessionId, mtimeMs) {
@@ -95,6 +96,63 @@ test('classifies DeepSeek runtime as working when tool calls are pending', t => 
   }, 2000);
 
   assert.equal(getDeepSeekRuntimeForCwd(cwd, { dshHome: root, now: 3000 }).state, 'working');
+});
+
+test('classifies DeepSeek runtime as waiting when approval is unresolved', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-statusbar-dsh-approval-test-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const cwd = '/Users/me/code/demo-app';
+  const sessionFile = writeSession(root, cwd, 'session-a', 2000);
+  writeProjectionCache(root, {
+    'session-a': {
+      rows: {
+        sessionStats: {
+          val: { openStep: null, pendingCalls: { call_1: 1900 } },
+        },
+      },
+    },
+  }, 2500);
+  const stdout = JSON.stringify({
+    type: 'approval/asked',
+    data: { id: 'approval-1', toolName: 'bash', callId: 'call_1' },
+  });
+
+  const run = () => ({ status: 0, stdout });
+  assert.equal(getDeepSeekSessionSignals(sessionFile, run).pendingKind, 'approval');
+  assert.equal(getDeepSeekRuntimeForCwd(cwd, { dshHome: root, now: 3000, run }).state, 'waiting');
+});
+
+test('does not keep DeepSeek runtime waiting after approval is decided', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-statusbar-dsh-approval-resolved-test-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const cwd = '/Users/me/code/demo-app';
+  writeSession(root, cwd, 'session-a', 2000);
+  writeProjectionCache(root, {
+    'session-a': {
+      rows: {
+        sessionStats: {
+          val: { openStep: null, pendingCalls: {} },
+        },
+      },
+    },
+  }, 2500);
+  const stdout = [
+    JSON.stringify({
+      type: 'approval/asked',
+      data: { id: 'approval-1', toolName: 'bash', callId: 'call_1' },
+    }),
+    JSON.stringify({
+      type: 'approval/decided',
+      data: { id: 'approval-1', outcome: 'allowed-once' },
+    }),
+  ].join('\n');
+
+  const runtime = getDeepSeekRuntimeForCwd(cwd, {
+    dshHome: root,
+    now: 3000,
+    run: () => ({ status: 0, stdout }),
+  });
+  assert.equal(runtime.state, 'ready');
 });
 
 test('classifies DeepSeek runtime as ready when projection cache is current', t => {
