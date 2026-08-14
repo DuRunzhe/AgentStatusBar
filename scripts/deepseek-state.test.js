@@ -401,6 +401,84 @@ test('does not keep DeepSeek waiting after the user answers the question', t => 
   assert.equal(runtime.state, 'ready');
 });
 
+function assistantMessage(text) {
+  return JSON.stringify({
+    type: 'assistant/message',
+    data: { message: { content: [{ type: 'text', text }], source: { model: 'deepseek-v4-pro' } } },
+  });
+}
+
+function turnEnd() {
+  return JSON.stringify({ type: 'turn/end', data: { turn: 1 } });
+}
+
+function userMessage(text) {
+  return JSON.stringify({ type: 'user/message', data: { content: [{ type: 'text', text }] } });
+}
+
+test('detects a turn ending with a question to the user', () => {
+  const signals = parseSessionSignals([
+    assistantMessage('修复完成。要继续处理哪个？'),
+    turnEnd(),
+  ].join('\n'));
+  assert.equal(signals.replyRequested, true);
+});
+
+test('does not flag a turn ending with a plain statement', () => {
+  const signals = parseSessionSignals([
+    assistantMessage('修复全流程完成。'),
+    turnEnd(),
+  ].join('\n'));
+  assert.equal(signals.replyRequested, false);
+});
+
+test('clears the reply-request once the user responds', () => {
+  const signals = parseSessionSignals([
+    assistantMessage('要继续处理哪个？'),
+    turnEnd(),
+    userMessage('先推送吧'),
+  ].join('\n'));
+  assert.equal(signals.replyRequested, false);
+});
+
+test('does not commit a mid-turn question before the turn ends', () => {
+  const signals = parseSessionSignals([
+    assistantMessage('我先检查一下，好吗？'),
+    JSON.stringify({ type: 'tool/call', data: { name: 'bash', callId: 'c1' } }),
+    JSON.stringify({ type: 'tool/result', data: { message: { source: { kind: 'tool', callId: 'c1' } } } }),
+    assistantMessage('处理完成。'),
+    turnEnd(),
+  ].join('\n'));
+  assert.equal(signals.replyRequested, false);
+});
+
+test('classifies an idle session ending with a question as waiting for reply', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-statusbar-dsh-reply-text-test-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const cwd = '/Users/me/code/demo-app';
+  writeSession(root, cwd, 'session-a', 2000);
+  writeProjectionCache(root, {
+    'session-a': {
+      rows: {
+        sessionStats: {
+          val: { openStep: null, pendingCalls: {} },
+        },
+      },
+    },
+  }, 2500);
+  const stdout = [
+    assistantMessage('要继续处理哪个？'),
+    turnEnd(),
+  ].join('\n');
+
+  const runtime = getDeepSeekRuntimeForCwd(cwd, {
+    dshHome: root,
+    now: 3000,
+    run: () => ({ status: 0, stdout }),
+  });
+  assert.equal(runtime.state, 'waiting_reply');
+});
+
 test('reuses cached session signals while the file is unchanged', t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-statusbar-dsh-cache-hit-test-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

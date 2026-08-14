@@ -5,6 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { textEndsWithQuestion } = require('./tool-state');
 
 const DEFAULT_DSH_HOME = path.join(os.homedir(), '.dsh');
 const SESSION_SIGNAL_CACHE = new Map();
@@ -178,8 +179,19 @@ function readDeepSeekSessionText(sessionFile, run = spawnSync) {
   }
 }
 
+function lastTextBlock(content) {
+  if (!Array.isArray(content)) return null;
+  const blocks = content
+    .filter(block => block?.type === 'text' && typeof block.text === 'string')
+    .map(block => block.text.trim())
+    .filter(Boolean);
+  return blocks.at(-1) || null;
+}
+
 function parseSessionSignals(text) {
   let model = null;
+  let replyRequested = false;
+  let pendingReplyText = null;
   const pendingApprovals = new Set();
   const pendingUserInput = new Set();
   const lines = String(text || '').trim().split('\n').slice(-SESSION_TAIL_LINES);
@@ -187,6 +199,21 @@ function parseSessionSignals(text) {
     try {
       const event = JSON.parse(line);
       const data = event?.data || {};
+      if (event?.type === 'user/message') {
+        // 用户已回复：清除之前的等待状态与候选文本
+        replyRequested = false;
+        pendingReplyText = null;
+      } else if (event?.type === 'assistant/message') {
+        pendingReplyText = lastTextBlock(data.message?.content);
+        const candidate = data?.message?.source?.model;
+        if (typeof candidate === 'string' && candidate.trim()) {
+          model = candidate.trim();
+        }
+      } else if (event?.type === 'turn/end' && pendingReplyText) {
+        // 回合结束且最后一条 assistant 文本以问句收尾 → 在等用户回复
+        replyRequested = textEndsWithQuestion(pendingReplyText);
+        pendingReplyText = null;
+      }
       if (event?.type === 'approval/asked' && typeof data.id === 'string') {
         pendingApprovals.add(data.id);
       } else if (event?.type === 'approval/decided' && typeof data.id === 'string') {
@@ -198,16 +225,12 @@ function parseSessionSignals(text) {
         const callId = data.message.source.callId;
         if (typeof callId === 'string') pendingUserInput.delete(callId);
       }
-      const candidate = event?.data?.message?.source?.model;
-      if (event?.type === 'assistant/message' && typeof candidate === 'string' && candidate.trim()) {
-        model = candidate.trim();
-      }
     } catch {}
   }
   let pendingKind = null;
   if (pendingUserInput.size > 0) pendingKind = 'user_input';
   else if (pendingApprovals.size > 0) pendingKind = 'approval';
-  return { model, pendingKind };
+  return { model, pendingKind, replyRequested };
 }
 
 function getDeepSeekSessionSignals(sessionFile, run = spawnSync, { now = Date.now() } = {}) {
@@ -270,6 +293,10 @@ function getDeepSeekRuntimeForCwd(cwd, {
   if (signals.pendingKind === 'approval') {
     return { state: 'waiting', ...baseRuntime };
   }
+  // 回合结束且最后一条 assistant 文本以问句收尾 → 在等用户回复
+  if (signals.replyRequested) {
+    return { state: 'waiting_reply', ...baseRuntime };
+  }
 
   const hasPendingCalls = Object.keys(stats.pendingCalls).length > 0;
   if (stats.openStep || hasPendingCalls) {
@@ -295,6 +322,7 @@ module.exports = {
   getDeepSeekRuntimeForCwd,
   getDeepSeekSessionSignals,
   getSessionIdFromFile,
+  lastTextBlock,
   parseSessionSignals,
   readFileTail,
   readProjectionStats,
