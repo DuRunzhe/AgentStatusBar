@@ -114,16 +114,7 @@ function activateFirstRunningBrowser(appNames = ['Google Chrome', 'Microsoft Edg
   }
 }
 
-function focusWebUrl(value, { reuseTabs = false } = {}) {
-  const url = normalizeLocalUrl(value);
-  if (!url) return false;
-  if (reuseTabs) {
-    const tabFocus = focusExistingBrowserTab(url);
-    if (tabFocus.focused) return true;
-    if (tabFocus.automationDenied && activateFirstRunningBrowser()) return true;
-  } else if (activateFirstRunningBrowser()) {
-    return true;
-  }
+function openLocalUrl(url) {
   try {
     execFileSync('/usr/bin/open', [url], {
       stdio: 'ignore',
@@ -133,6 +124,24 @@ function focusWebUrl(value, { reuseTabs = false } = {}) {
   } catch {
     return false;
   }
+}
+
+function focusWebUrl(value, {
+  reuseTabs = false,
+  focusTab = focusExistingBrowserTab,
+  activateBrowser = activateFirstRunningBrowser,
+  openUrl = openLocalUrl,
+} = {}) {
+  const url = normalizeLocalUrl(value);
+  if (!url) return false;
+  if (reuseTabs) {
+    const tabFocus = focusTab(url);
+    if (tabFocus.focused) return true;
+    // Automation 权限被拒时只激活浏览器，避免每次点击都重复新开标签页
+    if (tabFocus.automationDenied && activateBrowser()) return true;
+  }
+  // 未开启复用（或复用未命中）：直接交给系统打开 URL
+  return openUrl(url);
 }
 
 if (require.main === module) {
@@ -147,4 +156,5 @@ module.exports = {
   focusWebUrl,
   isAppRunning,
   normalizeLocalUrl,
+  openLocalUrl,
 };
