@@ -732,6 +732,8 @@ function getInstances(
           ? getOpenCodeModel(group.sessionFile, path.join(agentDef.sessionDir, 'storage'))
           : null);
     } else if (agentDef.name === 'DeepSeek Harness') {
+      contextUsage = deepSeekRuntime?.contextUsage || null;
+      model = deepSeekRuntime?.model || null;
       openUrl = getDeepSeekHarnessWebUrl(firstPid, agentDef, processes);
     }
     const runtimeActivityMs = openCodeRuntime?.lastActivityMs || deepSeekRuntime?.lastActivityMs || null;

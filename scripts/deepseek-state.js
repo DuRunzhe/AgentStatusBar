@@ -4,8 +4,15 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { spawnSync } = require('child_process');
 
 const DEFAULT_DSH_HOME = path.join(os.homedir(), '.dsh');
+const SESSION_MODEL_CACHE = new Map();
+const ZSTD_COMMANDS = [
+  'zstd',
+  '/opt/homebrew/bin/zstd',
+  '/usr/local/bin/zstd',
+];
 
 function encodeProjectKey(cwd) {
   if (!cwd) return '_no-cwd';
@@ -85,6 +92,8 @@ function readProjectionStats(sessionId, dshHome = DEFAULT_DSH_HOME) {
       pendingCalls: stats.pendingCalls && typeof stats.pendingCalls === 'object'
         ? stats.pendingCalls
         : {},
+      tokenUsage: session?.rows?.tokenUsage?.val || null,
+      contextPressure: session?.rows?.contextPressure?.val || null,
     };
   } catch {
     return null;
@@ -99,34 +108,116 @@ function getFileMtimeMs(file) {
   }
 }
 
+function getDeepSeekContextUsage(stats) {
+  const pressure = stats?.contextPressure;
+  if (!pressure || typeof pressure !== 'object') return null;
+  const usedTokens = Number(pressure.pressureTokens ?? pressure.surfaceTokens);
+  const windowTokens = Number(pressure.contextWindow);
+  if (!Number.isFinite(usedTokens) || usedTokens <= 0 ||
+      !Number.isFinite(windowTokens) || windowTokens <= 0) {
+    return null;
+  }
+  return {
+    used_tokens: Math.round(usedTokens),
+    window_tokens: Math.round(windowTokens),
+    percent: Math.min(100, Math.max(0, usedTokens / windowTokens * 100)),
+  };
+}
+
+function runZstdDecode(sessionFile, run) {
+  for (const command of ZSTD_COMMANDS) {
+    const result = run(command, ['-dc', sessionFile], {
+      encoding: 'utf8',
+      maxBuffer: 16 * 1024 * 1024,
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 2000,
+    });
+    if (result.status === 0) return result.stdout;
+  }
+  return '';
+}
+
+function readDeepSeekSessionText(sessionFile, run = spawnSync) {
+  if (!sessionFile) return '';
+  try {
+    if (sessionFile.endsWith('.jsonl')) return fs.readFileSync(sessionFile, 'utf8');
+    if (!sessionFile.endsWith('.jsonl.zstd')) return '';
+    return runZstdDecode(sessionFile, run);
+  } catch {
+    return '';
+  }
+}
+
+function getDeepSeekModel(sessionFile, run = spawnSync) {
+  try {
+    const stat = fs.statSync(sessionFile);
+    const cached = SESSION_MODEL_CACHE.get(sessionFile);
+    if (cached && Date.now() - cached.checkedAtMs < 60_000) return cached.model;
+    if (cached?.mtimeMs === stat.mtimeMs && cached?.size === stat.size) return cached.model;
+
+    let model = null;
+    const lines = readDeepSeekSessionText(sessionFile, run).trim().split('\n').slice(-500);
+    for (let i = lines.length - 1; i >= 0; i--) {
+      try {
+        const event = JSON.parse(lines[i]);
+        const candidate = event?.data?.message?.source?.model;
+        if (event?.type === 'assistant/message' && typeof candidate === 'string' && candidate.trim()) {
+          model = candidate.trim();
+          break;
+        }
+      } catch {}
+    }
+    SESSION_MODEL_CACHE.set(sessionFile, {
+      checkedAtMs: Date.now(),
+      mtimeMs: stat.mtimeMs,
+      size: stat.size,
+      model,
+    });
+    return model;
+  } catch {
+    return null;
+  }
+}
+
 function getDeepSeekRuntimeForCwd(cwd, {
   dshHome = DEFAULT_DSH_HOME,
   now = Date.now(),
+  run = spawnSync,
 } = {}) {
   const sessionFile = findLatestSessionFile(cwd, dshHome);
   if (!sessionFile) return { state: null, lastActivityMs: null, sessionFile: null };
 
   const lastActivityMs = getFileMtimeMs(sessionFile);
   const stats = readProjectionStats(getSessionIdFromFile(sessionFile), dshHome);
-  if (!stats) return { state: null, lastActivityMs, sessionFile };
+  const baseRuntime = {
+    lastActivityMs,
+    sessionFile,
+    model: getDeepSeekModel(sessionFile, run),
+    contextUsage: getDeepSeekContextUsage(stats),
+  };
+  if (!stats) return { state: null, ...baseRuntime };
 
   const hasPendingCalls = Object.keys(stats.pendingCalls).length > 0;
   if (stats.openStep || hasPendingCalls) {
-    return { state: 'working', lastActivityMs, sessionFile };
+    return { state: 'working', ...baseRuntime };
   }
 
   const cacheMtimeMs = getFileMtimeMs(stats.cacheFile);
   if (cacheMtimeMs + 1000 >= lastActivityMs && cacheMtimeMs <= now + 1000) {
-    return { state: 'ready', lastActivityMs, sessionFile };
+    return { state: 'ready', ...baseRuntime };
   }
-  return { state: null, lastActivityMs, sessionFile };
+  return { state: null, ...baseRuntime };
 }
 
 module.exports = {
   encodeProjectKey,
   findLatestSessionFile,
   findLatestSessionFileAcrossProjects,
+  getDeepSeekContextUsage,
+  getDeepSeekModel,
   getDeepSeekRuntimeForCwd,
   getSessionIdFromFile,
   readProjectionStats,
+  readDeepSeekSessionText,
+  runZstdDecode,
 };

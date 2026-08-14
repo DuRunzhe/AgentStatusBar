@@ -8,6 +8,8 @@ const path = require('path');
 const {
   encodeProjectKey,
   findLatestSessionFile,
+  getDeepSeekContextUsage,
+  getDeepSeekModel,
   getDeepSeekRuntimeForCwd,
 } = require('./deepseek-state');
 
@@ -71,11 +73,10 @@ test('classifies DeepSeek runtime as working when a step is open', t => {
     },
   }, 2000);
 
-  assert.deepEqual(getDeepSeekRuntimeForCwd(cwd, { dshHome: root, now: 3000 }), {
-    state: 'working',
-    lastActivityMs: 2000,
-    sessionFile,
-  });
+  const runtime = getDeepSeekRuntimeForCwd(cwd, { dshHome: root, now: 3000 });
+  assert.equal(runtime.state, 'working');
+  assert.equal(runtime.lastActivityMs, 2000);
+  assert.equal(runtime.sessionFile, sessionFile);
 });
 
 test('classifies DeepSeek runtime as working when tool calls are pending', t => {
@@ -131,4 +132,84 @@ test('leaves DeepSeek runtime unresolved when projection cache is behind the log
 
   assert.equal(getDeepSeekRuntimeForCwd(cwd, { dshHome: root, now: 5000 }).state, null);
   assert.equal(getDeepSeekRuntimeForCwd(cwd, { dshHome: root, now: 5000 }).lastActivityMs, 4000);
+});
+
+test('reads DeepSeek context usage from projection cache pressure data', () => {
+  assert.deepEqual(getDeepSeekContextUsage({
+    contextPressure: {
+      pressureTokens: 250000,
+      contextWindow: 1000000,
+    },
+  }), {
+    used_tokens: 250000,
+    window_tokens: 1000000,
+    percent: 25,
+  });
+});
+
+test('uses surface tokens as DeepSeek context fallback', () => {
+  assert.deepEqual(getDeepSeekContextUsage({
+    contextPressure: {
+      surfaceTokens: 125000,
+      contextWindow: 500000,
+    },
+  }), {
+    used_tokens: 125000,
+    window_tokens: 500000,
+    percent: 25,
+  });
+});
+
+test('reads the latest DeepSeek assistant model from session log text', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-statusbar-dsh-model-test-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const file = path.join(root, 'session.jsonl.zstd');
+  fs.writeFileSync(file, 'compressed-placeholder');
+  const stdout = [
+    JSON.stringify({
+      type: 'assistant/message',
+      data: { message: { source: { model: 'deepseek-v4-flash' } } },
+    }),
+    JSON.stringify({
+      type: 'assistant/message',
+      data: { message: { source: { model: 'deepseek-v4-pro' } } },
+    }),
+  ].join('\n');
+
+  assert.equal(getDeepSeekModel(file, () => ({ status: 0, stdout })), 'deepseek-v4-pro');
+});
+
+test('returns DeepSeek model and context usage in runtime data', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-statusbar-dsh-runtime-display-test-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const cwd = '/Users/me/code/demo-app';
+  writeSession(root, cwd, 'session-a', 2000);
+  writeProjectionCache(root, {
+    'session-a': {
+      rows: {
+        sessionStats: {
+          val: { openStep: null, pendingCalls: {} },
+        },
+        contextPressure: {
+          val: { pressureTokens: 200000, contextWindow: 1000000 },
+        },
+      },
+    },
+  }, 2500);
+  const stdout = JSON.stringify({
+    type: 'assistant/message',
+    data: { message: { source: { model: 'deepseek-v4-pro' } } },
+  });
+
+  const runtime = getDeepSeekRuntimeForCwd(cwd, {
+    dshHome: root,
+    now: 3000,
+    run: () => ({ status: 0, stdout }),
+  });
+  assert.equal(runtime.model, 'deepseek-v4-pro');
+  assert.deepEqual(runtime.contextUsage, {
+    used_tokens: 200000,
+    window_tokens: 1000000,
+    percent: 20,
+  });
 });
