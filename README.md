@@ -21,6 +21,7 @@ macOS 菜单栏里的 AI Coding Agent 状态监控器。通过 SwiftBar 汇总 C
 - 灰色圆点 **已停止**：进程不存在。
 
 “等待确认”和“等待回复”都属于需要人工介入的紧急状态。菜单栏顶部使用黄色圆点，每秒切换一次视觉强度，以 2 秒一轮呼吸，并触发同一套分级系统通知。菜单栏汇总始终按“等待确认 → 等待回复 → 进行中 → 就绪”排序，已停止实例不计入汇总。
+
 <img width="712" height="26" alt="image" src="https://github.com/user-attachments/assets/4030c2aa-09c8-4c19-9f30-50def8b035ec" />
 
 
