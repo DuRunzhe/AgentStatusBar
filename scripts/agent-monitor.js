@@ -12,6 +12,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('child_process');
 const { getClaudeNativeState, getClaudeRuntimeForPid } = require('./claude-context');
 const { getInstanceTrackerKey } = require('./instance-key');
 const { DEFAULT_LOCALE, getMessages, getUiStrings } = require('./i18n');
@@ -51,7 +52,10 @@ const {
 } = require('./tool-state');
 const {
   getProcessExecutableName,
+  getAgentProcessNames,
+  getMatchedAgentProcessName,
   hasActiveDescendantProcesses,
+  hasMatchingAgentAncestor,
   isCodexAppServerProcess,
   isPrimaryCodexSessionHeader,
   parseProcessSnapshot,
@@ -110,6 +114,13 @@ const AGENTS = [
     sessionDir: path.join(process.env.HOME, '.local', 'share', 'opencode'),
     sessionGlob: '**/storage/*',
   },
+  {
+    name: 'DeepSeek Harness',
+    process: 'dsh',
+    processNames: ['dsh', 'deepseek-harness'],
+    sessionDir: null,
+    sessionGlob: null,
+  },
 ];
 
 // ============================================================
@@ -147,6 +158,7 @@ let processMetadata = new Map();
 const PID_SESSION_CACHE = new Map();
 const PID_CWD_CACHE = new Map();
 const SESSION_ANALYSIS_CACHE = new Map();
+const WEB_URL_CACHE = new Map();
 let lastStatusPublication = null;
 
 function isPidRunning(pid) {
@@ -217,10 +229,12 @@ function refreshProcessMetadata() {
   } catch {}
 }
 
-function findProcess(name, processes) {
+function findProcess(agentDef, processes) {
+  const names = new Set(getAgentProcessNames(agentDef));
   const pids = processes
-    .filter(processInfo => getProcessExecutableName(processInfo.command) === name)
-    .filter(processInfo => name !== 'codex' || !isCodexAppServerProcess(processInfo.command))
+    .filter(processInfo => getMatchedAgentProcessName(processInfo.command, names))
+    .filter(processInfo => !hasMatchingAgentAncestor(processInfo, processes, names))
+    .filter(processInfo => agentDef.name !== 'Codex' || !isCodexAppServerProcess(processInfo.command))
     .map(processInfo => processInfo.pid)
     .filter(isPidRunning);
   return pids.length > 0 ? pids : null;
@@ -243,7 +257,82 @@ function requestTerminalPromptProbe(targetTtys) {
  * 通过 lsof 查找指定 PID 打开的 session 文件路径。
  * 返回 null 表示无法确定。
  */
-function getSessionFileForPid(pid, agentDef) {
+function getAgentDescendantPids(pid, agentDef, processes) {
+  const names = new Set(getAgentProcessNames(agentDef));
+  const byPid = new Map(processes.map(processInfo => [processInfo.pid, processInfo]));
+  return processes
+    .filter(processInfo => processInfo.pid !== pid)
+    .filter(processInfo => getMatchedAgentProcessName(processInfo.command, names))
+    .filter(processInfo => {
+      let current = processInfo;
+      const visited = new Set();
+      while (current && !visited.has(current.pid)) {
+        if (current.ppid === pid) return true;
+        visited.add(current.pid);
+        current = byPid.get(current.ppid);
+      }
+      return false;
+    })
+    .map(processInfo => processInfo.pid);
+}
+
+function parseListeningWebUrls(output) {
+  const urls = [];
+  let currentPid = null;
+  for (const line of String(output || '').split('\n')) {
+    if (/^p\d+$/.test(line)) {
+      currentPid = Number.parseInt(line.slice(1), 10);
+      continue;
+    }
+    if (!currentPid || !line.startsWith('n')) continue;
+    const address = line.slice(1);
+    const match = address.match(/^(?:127\.0\.0\.1|localhost|\[::1\]|::1):(\d+)$/);
+    if (match) urls.push({ pid: currentPid, url: `http://127.0.0.1:${match[1]}/` });
+  }
+  return urls;
+}
+
+function getDeepSeekHarnessWebUrl(pid, agentDef, processes) {
+  const pids = [pid, ...getAgentDescendantPids(pid, agentDef, processes)];
+  const cacheKey = pids.join(',');
+  const cached = WEB_URL_CACHE.get(cacheKey);
+  if (cached && Date.now() - cached.checkedAtMs < 10_000) return cached.url;
+
+  let url = null;
+  try {
+    const result = spawnSync('/usr/sbin/lsof', [
+      '-nP',
+      '-a',
+      '-p',
+      pids.join(','),
+      '-iTCP',
+      '-sTCP:LISTEN',
+      '-Fn',
+    ], {
+      encoding: 'utf8',
+      timeout: 1000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    if (result.status === 0 || result.stdout) {
+      url = parseListeningWebUrls(result.stdout)
+        .sort((a, b) => {
+          const aRoot = a.pid === pid ? 0 : 1;
+          const bRoot = b.pid === pid ? 0 : 1;
+          return aRoot - bRoot || a.pid - b.pid || a.url.localeCompare(b.url);
+        })[0]?.url || null;
+    }
+  } catch {}
+
+  WEB_URL_CACHE.set(cacheKey, { checkedAtMs: Date.now(), url });
+  return url;
+}
+
+function getMetadataFilesForPid(pid, agentDef, processes) {
+  const metadataPids = [pid, ...getAgentDescendantPids(pid, agentDef, processes || [])];
+  return metadataPids.flatMap(metadataPid => processMetadata.get(metadataPid)?.files || []);
+}
+
+function getSessionFileForPid(pid, agentDef, processes = []) {
   if (agentDef.name === 'Claude') {
     return getClaudeRuntimeForPid(pid)?.transcript_path || null;
   }
@@ -253,7 +342,7 @@ function getSessionFileForPid(pid, agentDef) {
   if (cached && fs.existsSync(cached)) return cached;
 
   try {
-    const files = processMetadata.get(pid)?.files || [];
+    const files = getMetadataFilesForPid(pid, agentDef, processes);
 
     if (agentDef.name === 'Codex') {
       const rolloutFiles = files.filter(f =>
@@ -524,7 +613,7 @@ function getInstances(
   terminalProbeTtys = null,
   cacheUsage = null
 ) {
-  const pids = findProcess(agentDef.process, processes);
+  const pids = findProcess(agentDef, processes);
   const now = Date.now();
 
   // 无进程 → ⚪ 已停止
@@ -545,7 +634,7 @@ function getInstances(
   // 用 lsof 将 PID 分组到 session 文件
   const groups = {};
   for (const pid of pids) {
-    const sessionFile = getSessionFileForPid(pid, agentDef);
+    const sessionFile = getSessionFileForPid(pid, agentDef, processes);
     const key = sessionFile || `__pid_${pid}`;
     if (!groups[key]) groups[key] = { sessionFile, pids: [] };
     groups[key].pids.push(pid);
@@ -622,6 +711,7 @@ function getInstances(
     );
     let contextUsage = null;
     let model = null;
+    let openUrl = null;
     if (agentDef.name === 'Codex' && group.sessionFile) {
       contextUsage = sessionAnalysis?.contextUsage || null;
       model = sessionAnalysis?.model || null;
@@ -636,6 +726,8 @@ function getInstances(
         || (group.sessionFile
           ? getOpenCodeModel(group.sessionFile, path.join(agentDef.sessionDir, 'storage'))
           : null);
+    } else if (agentDef.name === 'DeepSeek Harness') {
+      openUrl = getDeepSeekHarnessWebUrl(firstPid, agentDef, processes);
     }
     const lastActivityMs = openCodeRuntime?.lastActivityMs >= processStartedAt
       ? openCodeRuntime.lastActivityMs
@@ -651,6 +743,7 @@ function getInstances(
         : null,
       model,
       context_usage: contextUsage,
+      open_url: openUrl,
     };
   });
 }

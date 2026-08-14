@@ -27,10 +27,23 @@ trap cleanup EXIT
 printf 'roots\t%s\n' "$(stat -f '%i' "$TRACKED_ROOTS_FILE" 2>/dev/null || echo 0)" > "$TEMP_STATE"
 
 /usr/bin/awk '
+  function basename(value) {
+    sub(/^.*\//, "", value)
+    return value
+  }
+  function agent_name(  i, name) {
+    for (i = 5; i <= NF && i <= 8; i++) {
+      name = basename($i)
+      if (name == "codex" || name == "opencode" ||
+          name == "dsh" || name == "deepseek-harness") {
+        return name
+      }
+    }
+    return ""
+  }
   {
-    executable = $5
-    sub(/^.*\//, "", executable)
-    if (executable == "codex" || executable == "opencode") {
+    executable = agent_name()
+    if (executable != "") {
       print $1 "\t" executable
     }
   }
@@ -40,7 +53,9 @@ cache_is_valid() {
   local pid="$1" name="$2" cwd file
   cwd=$(/usr/bin/awk -F '\t' -v pid="$pid" '$1 == pid && $2 == "cwd" { print $3; exit }' "$OUTPUT_FILE" 2>/dev/null)
   [ -n "$cwd" ] && [ -d "$cwd" ] || return 1
-  [ "$name" = "opencode" ] && return 0
+  case "$name" in
+    opencode|dsh|deepseek-harness) return 0 ;;
+  esac
   while IFS= read -r file; do
     [ -f "$file" ] && return 0
   done < <(/usr/bin/awk -F '\t' -v pid="$pid" '$1 == pid && $2 == "file" { print $3 }' "$OUTPUT_FILE" 2>/dev/null)
@@ -90,7 +105,8 @@ if [ -n "$PID_LIST" ]; then
     new_file=$(/usr/bin/awk -F '\t' -v pid="$pid" '$1 == pid && $2 == "file" { print $3; exit }' "$PROBE_OUTPUT")
     new_valid=false
     if [ -n "$new_cwd" ] && [ -d "$new_cwd" ]; then
-      if [ "$name" = "opencode" ] || { [ -n "$new_file" ] && [ -f "$new_file" ]; }; then
+      if [ "$name" = "opencode" ] || [ "$name" = "dsh" ] || [ "$name" = "deepseek-harness" ] ||
+          { [ -n "$new_file" ] && [ -f "$new_file" ]; }; then
         new_valid=true
       fi
     fi

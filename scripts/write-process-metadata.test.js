@@ -28,16 +28,18 @@ test('probes new PIDs together and reuses valid metadata until periodic refresh'
   fs.writeFileSync(snapshot, [
     '42 1 00:01 ttys001 /opt/bin/codex',
     '43 1 00:01 ttys002 /opt/bin/opencode',
+    '44 1 00:01 ttys003 /opt/bin/node /opt/bin/dsh chat',
   ].join('\n'));
   fs.writeFileSync(fakeLsof, `#!/bin/bash
 printf '%s\\n' "$*" >> "${log}"
 printf '%s\\n' 'p42' 'fcwd' 'n${project}' 'f10' 'n${session}'
 printf '%s\\n' 'p43' 'fcwd' 'n${project}'
+printf '%s\\n' 'p44' 'fcwd' 'n${project}'
 `);
   fs.chmodSync(fakeLsof, 0o755);
 
   const roots = path.join(root, 'roots');
-  fs.writeFileSync(roots, '42\tcodex\n43\topencode\n');
+  fs.writeFileSync(roots, '42\tcodex\n43\topencode\n44\tdsh\n');
   const run = now => spawnSync('/bin/bash', [script, snapshot, output, state, retry, roots], {
     encoding: 'utf8',
     env: {
@@ -50,8 +52,9 @@ printf '%s\\n' 'p43' 'fcwd' 'n${project}'
 
   let result = run(1000);
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(fs.readFileSync(log, 'utf8').trim(), '-Fn -p 42,43');
+  assert.equal(fs.readFileSync(log, 'utf8').trim(), '-Fn -p 42,43,44');
   assert.match(fs.readFileSync(output, 'utf8'), new RegExp(`42\\tcwd\\t${project}`));
+  assert.match(fs.readFileSync(output, 'utf8'), new RegExp(`44\\tcwd\\t${project}`));
   assert.match(fs.readFileSync(state, 'utf8'), /^roots\t\d+$/m);
   assert.equal(fs.existsSync(retry), false);
 

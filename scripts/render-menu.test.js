@@ -128,6 +128,27 @@ test('renders waiting and stopped states with lightweight symbols', () => {
   assert.match(output, /⚪ Claude: Stopped \| color=#8E8E93/);
 });
 
+test('renders web agent instances as browser links', () => {
+  const output = render({
+    summary: '🟢 1 ready',
+    display_config: {},
+    ui: { statusUnknown: 'Unknown' },
+    agents: [{
+      name: 'DeepSeek Harness',
+      instances: [{
+        state: 'ready',
+        label: 'DeepSeek Harness',
+        status_label: 'Ready',
+        pids: [387],
+        open_url: 'http://127.0.0.1:3080/',
+      }],
+    }],
+  });
+
+  assert.match(output, /🟢 DeepSeek Harness: Ready .* href=http:\/\/127\.0\.0\.1:3080\//);
+  assert.doesNotMatch(output, /param1=387 terminal=false/);
+});
+
 test('sanitizes SwiftBar delimiters in dynamic text', () => {
   const output = render({
     summary: 'Ready | unsafe',

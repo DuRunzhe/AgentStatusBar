@@ -4,6 +4,10 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   getProcessExecutableName,
+  getMatchedAgentProcessName,
+  getProcessCommandNames,
+  isAgentProcessName,
+  hasMatchingAgentAncestor,
   hasActiveDescendantProcesses,
   isCodexAppServerProcess,
   isIgnoredChildProcess,
@@ -17,6 +21,36 @@ test('extracts executable names from full ps command lines', () => {
   assert.equal(getProcessExecutableName('/bin/zsh -l'), 'zsh');
 });
 
+test('extracts agent names from node-launched CLI scripts', () => {
+  assert.deepEqual(getProcessCommandNames('/opt/homebrew/bin/node /opt/homebrew/bin/dsh chat'), [
+    'node',
+    'dsh',
+    'chat',
+  ]);
+  assert.equal(
+    getMatchedAgentProcessName('/opt/homebrew/bin/node /opt/homebrew/bin/dsh chat', ['dsh']),
+    'dsh'
+  );
+});
+
+test('recognizes DeepSeek Harness process names as tracked agents', () => {
+  assert.equal(isAgentProcessName('dsh'), true);
+  assert.equal(isAgentProcessName('deepseek-harness'), true);
+  assert.equal(isAgentProcessName('python'), false);
+});
+
+test('detects wrapped agent children that share the same agent name', () => {
+  const processes = [
+    { pid: 10, ppid: 1, command: 'npm exec @deepseek-ai/dsh web' },
+    { pid: 11, ppid: 10, command: 'node /tmp/node_modules/.bin/dsh web' },
+    { pid: 12, ppid: 11, command: '/bin/zsh' },
+  ];
+
+  assert.equal(hasMatchingAgentAncestor(processes[0], processes, ['dsh']), false);
+  assert.equal(hasMatchingAgentAncestor(processes[1], processes, ['dsh']), true);
+  assert.equal(hasMatchingAgentAncestor(processes[2], processes, ['dsh']), true);
+});
+
 test('identifies Codex app-server processes without excluding remote TUIs', () => {
   assert.equal(isCodexAppServerProcess('/opt/bin/codex app-server --listen unix://./socket'), true);
   assert.equal(isCodexAppServerProcess('/opt/bin/codex --remote unix://./socket'), false);
@@ -27,6 +61,7 @@ test('ignores the persistent Codex code mode host only for Codex', () => {
   assert.equal(isIgnoredChildProcess('Codex', command), true);
   assert.equal(isIgnoredChildProcess('Claude', command), false);
   assert.equal(isIgnoredChildProcess('Codex', '/bin/zsh'), false);
+  assert.equal(isIgnoredChildProcess('DeepSeek Harness', 'node /tmp/node_modules/.bin/dsh web'), true);
 });
 
 test('selects the primary Codex rollout and rejects subagent rollouts', () => {
@@ -67,4 +102,15 @@ test('finds active nested task processes while ignoring the persistent host itse
 
   assert.equal(hasActiveDescendantProcesses(100, 'Codex', processes), true);
   assert.equal(hasActiveDescendantProcesses(100, 'Codex', processes.slice(0, 2)), false);
+});
+
+test('ignores wrapped agent child processes while still counting their task children', () => {
+  const processes = [
+    { pid: 200, ppid: 1, command: 'npm exec @deepseek-ai/dsh web' },
+    { pid: 201, ppid: 200, command: 'node /tmp/node_modules/.bin/dsh web' },
+    { pid: 202, ppid: 201, command: '/bin/bash' },
+  ];
+
+  assert.equal(hasActiveDescendantProcesses(200, 'DeepSeek Harness', processes.slice(0, 2)), false);
+  assert.equal(hasActiveDescendantProcesses(200, 'DeepSeek Harness', processes), true);
 });

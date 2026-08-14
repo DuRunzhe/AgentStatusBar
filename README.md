@@ -161,6 +161,7 @@ macOS 没有向普通脚本提供稳定的通知权限查询接口，因此开�
 - **Claude Code**：`~/.claude/sessions/<PID>.json` 提供 PID/session/cwd 配对及原生 `busy` / `idle` / `waiting` 状态；Claude statusline 和 transcript 提供模型、会话路径、上下文窗口及使用率。
 - **Codex CLI**：读取 `~/.codex/sessions/**/rollout-*.jsonl`，并在普通未完成工具调用无法区分执行与确认时，按 PID 对应 TTY 核对 Terminal.app 当前可见区域底部的完整确认界面。
 - **OpenCode**：检测 `opencode` 进程，并优先从 `~/.local/share/opencode/opencode.db` 的当前目录最新会话读取状态、provider/model 和已用 token；上下文窗口来自 `~/.cache/opencode/models.json`，旧版 `storage/*` 保留为模型读取回退。
+- **DeepSeek Harness**：检测交互式 `dsh` / `deepseek-harness` CLI 进程，按 cwd 区分多个 `dsh chat` 会话，并通过实际后代进程判断是否正在执行本地任务；MCP server 和 Claude Skill 形态由宿主客户端承载，不作为独立会话重复显示。
 - **进程发现**：SwiftBar 后台采集器写入 agent 主进程及全部后代进程，并在 2 秒快照中保留 TTY；PID 到 cwd/session 的 `lsof` 元数据采用新 PID 快速解析、稳定 PID 周期复核的异步策略，不阻塞状态轮询。
 
 ## 状态判定
@@ -221,13 +222,13 @@ SwiftBar 通过唯一稳定入口 `scripts/agent-monitor.sh` 每秒刷新一次�
 | 守护进程状态判断 | 每 2 秒一次 | 独立进程 |
 | SwiftBar 菜单输出 | 每秒选择已有缓存帧 | 是，但只读取小文件 |
 
-`write-process-snapshot.sh` 使用一次 `ps -axo pid,ppid,etime,tty,command` 获取全量进程表，再由 `awk` 找出 Claude、Codex、OpenCode 主进程及其全部后代进程。快照保留 PID、PPID、进程寿命、TTY 和完整命令，供任务子进程判断及终端跳转使用。根 PID 列表只有内容变化时才替换，因此文件 inode 可以作为新建或退出会话的稳定变化键。
+`write-process-snapshot.sh` 使用一次 `ps -axo pid,ppid,etime,tty,command` 获取全量进程表，再由 `awk` 找出 Claude、Codex、OpenCode、DeepSeek Harness 主进程及其全部后代进程。快照保留 PID、PPID、进程寿命、TTY 和完整命令，供任务子进程判断及终端跳转使用。根 PID 列表只有内容变化时才替换，因此文件 inode 可以作为新建或退出会话的稳定变化键。
 
-Codex 和 OpenCode 的 cwd/session 元数据由 `write-process-metadata.sh` 自适应采集：
+Codex、OpenCode 和 DeepSeek Harness 的 cwd/session 元数据由 `write-process-metadata.sh` 自适应采集：
 
 - 根 PID inode 与上次已处理值不一致时立即运行，不依赖秒级 mtime，避免新会话与上次刷新恰好发生在同一秒时延迟 30 秒。
 - 需要解析的多个 PID 合并成一次 `lsof -Fn -p pid1,pid2,...`，避免逐 PID 启动 `lsof`。
-- Codex 映射只有同时获得有效 cwd 和仍存在的 rollout 文件才视为成功；OpenCode 获得有效 cwd 即可。
+- Codex 映射只有同时获得有效 cwd 和仍存在的 rollout 文件才视为成功；OpenCode 和 DeepSeek Harness 获得有效 cwd 即可。
 - 新 PID 尚未生成 rollout 时写入 retry 标记，入口脚本每 2 秒重试；解析成功后删除标记。
 - `lsof` 暂时失败时保留最后一次有效映射，但稳定 PID 仍会在 30 秒后重新验证，因此这不是永久缓存。
 - 已退出 PID 不再写入新的 metadata/state 文件，会随下一轮采集自然清除。

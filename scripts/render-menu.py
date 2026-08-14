@@ -23,6 +23,13 @@ def safe_text(value):
     return str(value or "").replace("\r", " ").replace("\n", " ").replace("|", "¦")
 
 
+def safe_url(value):
+    text = str(value or "").strip()
+    if text.startswith("http://127.0.0.1:") or text.startswith("http://localhost:"):
+        return text.replace(" ", "%20").replace("|", "%7C")
+    return ""
+
+
 def format_tokens(value):
     value = int(value)
     if value >= 1_000_000:
@@ -130,7 +137,11 @@ def render_menu(data, paths, now=None, static_icon=False, icon_frame=None):
             if state == "stopped":
                 line += " color=#8E8E93"
             elif pids and node_cmd:
-                line += f" bash={node_cmd} param0={focus_path} param1={pids[0]} terminal=false"
+                url = safe_url(instance.get("open_url"))
+                if url:
+                    line += f" href={url}"
+                else:
+                    line += f" bash={node_cmd} param0={focus_path} param1={pids[0]} terminal=false"
             lines.append(line)
 
     lines.append("---")

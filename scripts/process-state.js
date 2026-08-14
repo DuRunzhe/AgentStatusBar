@@ -21,14 +21,64 @@ function getProcessExecutableName(command) {
   return path.basename(executable);
 }
 
+function getProcessCommandNames(command, maxTokens = 4) {
+  return String(command || '')
+    .trim()
+    .split(/\s+/)
+    .slice(0, maxTokens)
+    .map(token => path.basename(token))
+    .filter(Boolean);
+}
+
 function isCodexAppServerProcess(command) {
   if (getProcessExecutableName(command) !== 'codex') return false;
   return /(?:^|\s)app-server(?:\s|$)/.test(String(command || ''));
 }
 
+function getAgentProcessNames(agentDef) {
+  if (Array.isArray(agentDef?.processNames)) return agentDef.processNames;
+  if (agentDef?.process) return [agentDef.process];
+  return [];
+}
+
+function isAgentProcessName(name) {
+  return ['claude', 'codex', 'opencode', 'dsh', 'deepseek-harness'].includes(name);
+}
+
+function getMatchedAgentProcessName(command, allowedNames = null) {
+  const allowed = allowedNames ? new Set(allowedNames) : null;
+  return getProcessCommandNames(command).find(name =>
+    isAgentProcessName(name) && (!allowed || allowed.has(name))
+  ) || null;
+}
+
+function hasMatchingAgentAncestor(processInfo, processes, allowedNames) {
+  const byPid = new Map(processes.map(item => [item.pid, item]));
+  const allowed = new Set(allowedNames || []);
+  let current = byPid.get(processInfo.ppid);
+  const visited = new Set();
+
+  while (current && !visited.has(current.pid)) {
+    if (getMatchedAgentProcessName(current.command, allowed)) return true;
+    visited.add(current.pid);
+    current = byPid.get(current.ppid);
+  }
+  return false;
+}
+
+function getAgentNamesForDisplayName(agentName) {
+  if (agentName === 'Claude') return ['claude'];
+  if (agentName === 'Codex') return ['codex'];
+  if (agentName === 'OpenCode') return ['opencode'];
+  if (agentName === 'DeepSeek Harness') return ['dsh', 'deepseek-harness'];
+  return [];
+}
+
 function isIgnoredChildProcess(agentName, command) {
-  return agentName === 'Codex'
-    && getProcessExecutableName(command) === 'codex-code-mode-host';
+  if (agentName === 'Codex' && getProcessExecutableName(command) === 'codex-code-mode-host') {
+    return true;
+  }
+  return Boolean(getMatchedAgentProcessName(command, getAgentNamesForDisplayName(agentName)));
 }
 
 function hasActiveDescendantProcesses(pid, agentName, processes) {
@@ -76,8 +126,14 @@ function parseElapsedTime(value) {
 }
 
 module.exports = {
+  getAgentProcessNames,
+  getAgentNamesForDisplayName,
+  getMatchedAgentProcessName,
+  getProcessCommandNames,
   getProcessExecutableName,
+  hasMatchingAgentAncestor,
   hasActiveDescendantProcesses,
+  isAgentProcessName,
   isCodexAppServerProcess,
   isIgnoredChildProcess,
   isPrimaryCodexSessionHeader,
