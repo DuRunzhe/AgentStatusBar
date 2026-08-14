@@ -18,6 +18,7 @@ function render(data) {
     script,
     statusPath,
     '/repo/focus-agent-session.js',
+    '/repo/focus-web-url.js',
     '/opt/node',
     '/repo/restart-agent-monitor.sh',
     '/repo/display-config.js',
@@ -38,6 +39,7 @@ function renderCache(data, cacheKey = 'status-key') {
     script,
     statusPath,
     '/repo/focus-agent-session.js',
+    '/repo/focus-web-url.js',
     '/opt/node',
     '/repo/restart-agent-monitor.sh',
     '/repo/display-config.js',
@@ -145,7 +147,7 @@ test('renders web agent instances as browser links', () => {
     }],
   });
 
-  assert.match(output, /🟢 DeepSeek Harness: Ready .* href=http:\/\/127\.0\.0\.1:3080\//);
+  assert.match(output, /🟢 DeepSeek Harness: Ready .*param0=\/repo\/focus-web-url\.js param1=http:\/\/127\.0\.0\.1:3080\/ terminal=false/);
   assert.doesNotMatch(output, /param1=387 terminal=false/);
 });
 

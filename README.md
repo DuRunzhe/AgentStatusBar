@@ -203,7 +203,8 @@ OpenCode SQLite/model catalog ────────────────�
                                                          agent-monitor.sh
                                                          选择双帧菜单缓存
 
-点击 Agent 行 ──> focus-agent-session.js ──> TTY ──> 终端窗口/应用
+点击终端 Agent 行 ──> focus-agent-session.js ──> TTY ──> 终端窗口/应用
+点击 DeepSeek Harness Web 行 ──> focus-web-url.js ──> 已有浏览器标签页或新本地页面
 ```
 
 ### 技术方案

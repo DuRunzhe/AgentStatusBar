@@ -74,7 +74,7 @@ def animation_mode(data):
 
 def render_menu(data, paths, now=None, static_icon=False, icon_frame=None):
     now = time.time() if now is None else now
-    focus_path, node_cmd, restart_path, display_path, notification_path, startup_path = paths
+    focus_path, focus_web_path, node_cmd, restart_path, display_path, notification_path, startup_path = paths
     ui = data.get("ui", {})
     lines = []
 
@@ -139,7 +139,7 @@ def render_menu(data, paths, now=None, static_icon=False, icon_frame=None):
             elif pids and node_cmd:
                 url = safe_url(instance.get("open_url"))
                 if url:
-                    line += f" href={url}"
+                    line += f" bash={node_cmd} param0={focus_web_path} param1={url} terminal=false"
                 else:
                     line += f" bash={node_cmd} param0={focus_path} param1={pids[0]} terminal=false"
             lines.append(line)
@@ -201,26 +201,26 @@ def write_menu_cache(data, paths, prefix, cache_key):
 
 
 def main(argv):
-    if len(argv) < 7:
+    if len(argv) < 8:
         raise SystemExit(
-            "usage: render-menu.py STATUS FOCUS NODE RESTART DISPLAY NOTIFICATIONS "
+            "usage: render-menu.py STATUS FOCUS FOCUS_WEB NODE RESTART DISPLAY NOTIFICATIONS "
             "STARTUP [--static | --cache-prefix PREFIX --cache-key KEY]"
         )
     status_path = argv[0]
     with open(status_path, encoding="utf-8") as status_file:
         data = json.load(status_file)
-    options = argv[7:]
+    options = argv[8:]
     if "--cache-prefix" in options:
         prefix_index = options.index("--cache-prefix")
         key_index = options.index("--cache-key")
         write_menu_cache(
             data,
-            argv[1:7],
+            argv[1:8],
             options[prefix_index + 1],
             options[key_index + 1],
         )
         return
-    print(render_menu(data, argv[1:7], static_icon="--static" in options))
+    print(render_menu(data, argv[1:8], static_icon="--static" in options))
 
 
 if __name__ == "__main__":

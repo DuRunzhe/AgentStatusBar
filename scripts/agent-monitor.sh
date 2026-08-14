@@ -66,6 +66,7 @@ PYTHON_CMD=$(resolve_command python3 /opt/homebrew/bin/python3 /usr/local/bin/py
 DAEMON_PATH="$SCRIPT_DIR/agent-monitor.js"
 RESTART_PATH="$SCRIPT_DIR/restart-agent-monitor.sh"
 FOCUS_PATH="$SCRIPT_DIR/focus-agent-session.js"
+FOCUS_WEB_PATH="$SCRIPT_DIR/focus-web-url.js"
 I18N_PATH="$SCRIPT_DIR/i18n.js"
 DISPLAY_CONFIG_PATH="$SCRIPT_DIR/display-config.js"
 NOTIFICATION_SETTINGS_PATH="$SCRIPT_DIR/notification-settings.js"
@@ -211,6 +212,7 @@ refresh_menu_cache() {
   "$PYTHON_CMD" "$RENDER_PATH" \
     "$STATUS_FILE" \
     "$FOCUS_PATH" \
+    "$FOCUS_WEB_PATH" \
     "$NODE_CMD" \
     "$RESTART_PATH" \
     "$DISPLAY_CONFIG_PATH" \
@@ -264,5 +266,5 @@ if [ -s "$MENU_CACHE_PREFIX.$MENU_FRAME" ]; then
 fi
 
 exec "$PYTHON_CMD" "$RENDER_PATH" \
-  "$STATUS_FILE" "$FOCUS_PATH" "$NODE_CMD" "$RESTART_PATH" \
+  "$STATUS_FILE" "$FOCUS_PATH" "$FOCUS_WEB_PATH" "$NODE_CMD" "$RESTART_PATH" \
   "$DISPLAY_CONFIG_PATH" "$NOTIFICATION_SETTINGS_PATH" "$STARTUP_SETTINGS_PATH"
