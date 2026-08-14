@@ -39,6 +39,8 @@ macOS 菜单栏里的 AI Coding Agent 状态监控器。通过 SwiftBar 汇总 C
 | 工具调用配对 | 按 tool ID 配对 `tool_use` 与 `tool_result`，避免并行调用和扫描窗口截断误判 |
 | 进程时长 | 显示 Agent 进程持续运行时间 |
 | 会话跳转 | Terminal.app / iTerm2 精确切换标签页，其他受支持终端降级为激活应用 |
+| DeepSeek Harness | 支持交互式 `dsh` / `deepseek-harness` CLI；Web 实例可点击打开本地 Harness 页面 |
+| 浏览器标签页复用 | 可在“设置 → 浏览器标签页”启用；复用已有 DeepSeek Harness 本地页面，避免 Chrome 每次新开标签页 |
 | 人工介入提醒 | 可在“设置 → 通知”启用；等待确认或等待回复时立即通知，持续 60 秒再次提醒，持续 3 分钟发送最后提醒，点击通知可跳转对应会话 |
 | 开机自启 | 在“设置 → 开机自启”中引导安装或卸载用户级 LaunchAgent，并打开 macOS 登录项设置确认 SwiftBar 自启 |
 | 自动恢复 | launchd 通过 `KeepAlive` 管理守护进程 |
@@ -138,12 +140,14 @@ SwiftBar 每秒启动稳定插件入口，但 Python 只在状态、配置或分
 | 开启或关闭开机自启 | 点击“设置 → 开机自启 → 点击开启开机自启/点击关闭开机自启” |
 | 开启或关闭通知 | 点击“设置 → 通知 → 点击开启通知/点击关闭通知”；首次开启会检查依赖、引导系统权限并发送测试通知 |
 | 打开通知设置 | 点击“设置 → 通知 → 打开系统通知设置”；菜单会提示应在通知应用列表中查找 `terminal-notifier` |
+| 开启或关闭浏览器标签页复用 | 点击“设置 → 浏览器标签页 → 点击开启浏览器标签页复用/点击关闭浏览器标签页复用”；首次开启会引导授予浏览器自动化权限 |
+| 打开自动化设置 | 点击“设置 → 浏览器标签页 → 打开系统自动化设置” |
 | 从通知跳转会话 | 通知开关启用后，点击等待确认/等待回复通知 |
 | 立即刷新 | 点击菜单底部的“立即刷新” |
 | 重启守护进程 | 点击菜单底部的“重启守护进程”；会清理重复实例并通过 launchd 重启 |
 | 调整显示内容 | 悬浮“设置 → 显示配置”，点击子菜单选项即可切换 |
 
-显示配置和通知开关保存在 `~/.config/agent-statusbar/config.json`。开机自启状态由 `~/Library/LaunchAgents/com.agentstatusbar.monitor.plist` 判断；开启时安装并启动服务，关闭时卸载服务并删除 plist。首次运行时五项显示内容默认开启，通知默认关闭。受 macOS 原生菜单行为限制，执行操作后菜单会关闭；重新打开即可查看最新状态。
+显示配置、通知开关和浏览器标签页复用开关保存在 `~/.config/agent-statusbar/config.json`。开机自启状态由 `~/Library/LaunchAgents/com.agentstatusbar.monitor.plist` 判断；开启时安装并启动服务，关闭时卸载服务并删除 plist。首次运行时五项显示内容默认开启，通知和浏览器标签页复用默认关闭。受 macOS 原生菜单行为限制，执行操作后菜单会关闭；重新打开即可查看最新状态。
 
 macOS 没有向普通脚本提供稳定的通知权限查询接口，因此开启流程使用测试通知确认：只有用户选择“已看到”才启用开关；选择“还没有”、取消依赖安装或退出设置流程都会保持关闭。
 
@@ -152,8 +156,10 @@ macOS 没有向普通脚本提供稳定的通知权限查询接口，因此开�
 会话跳转支持：
 
 - Terminal.app、iTerm2：按 PID 对应的 TTY 精确切换到窗口/标签页。
+- DeepSeek Harness Web 实例：点击本地 `http://127.0.0.1:<port>/` 页面；端口来自实际进程，不假设固定端口。
+- 浏览器标签页复用开启时：通过 JXA 读取 Google Chrome、Microsoft Edge、Brave Browser 或 Safari 的现有标签页 URL，匹配同一个本地 Harness 地址后切换到已有标签页；未找到匹配标签页时才打开新页面。
 - Warp、Visual Studio Code、Cursor、Windsurf、kitty、Alacritty：无法精确定位标签页时激活对应应用。
-- 首次跳转时，macOS 可能询问 SwiftBar/Node.js 的“自动化”权限，需要允许控制终端应用。
+- 首次跳转终端或首次开启浏览器标签页复用时，macOS 可能询问 SwiftBar/Node.js 的“自动化”权限，需要允许控制对应终端或浏览器应用。
 - `terminal-notifier` 的通知权限和横幅样式需要在 macOS“系统设置 → 通知”中单独配置；通知开关会自动打开该页面，原有 `osascript` 通知设置不会自动继承。
 
 ## 数据来源
@@ -204,10 +210,10 @@ OpenCode SQLite/model catalog ────────────────�
                                                          选择双帧菜单缓存
 
 点击终端 Agent 行 ──> focus-agent-session.js ──> TTY ──> 终端窗口/应用
-点击 DeepSeek Harness Web 行 ──> focus-web-url.js ──> 已有浏览器标签页或新本地页面
+点击 DeepSeek Harness Web 行 ──> focus-web-url.js ──> JXA 查找已有浏览器标签页或打开新本地页面
 ```
 
-DeepSeek Harness Web 标签页精确复用由“设置 → 浏览器标签页”控制，交互方式与通知设置类似。开启时会引导配置 macOS 自动化权限，之后读取 Chrome 标签并跳转到已有本地页面；关闭时不读取浏览器标签，只激活已运行浏览器，避免在未授权时继续新开重复页面。
+DeepSeek Harness Web 标签页精确复用由“设置 → 浏览器标签页”控制，交互方式与通知设置类似。开启时会引导配置 macOS 自动化权限，之后通过 JXA 读取 Chrome、Edge、Brave 或 Safari 标签页 URL，并跳转到已有的同端口本地页面；关闭时不读取浏览器标签，只激活已运行浏览器。若未找到匹配的本地页面，才会打开新的 DeepSeek Harness 页面。
 
 ### 技术方案
 
@@ -333,6 +339,7 @@ python3 -m py_compile scripts/render-menu.py
 - 使用 NVM 安装 Node 时，SwiftBar 会优先复用当前 LaunchAgent plist 中记录的 Node 绝对路径；该路径不可用时依次回退到 PATH、NVM 默认版本（支持版本号、主版本、`node`、`stable` 和 `lts/*` 等别名）及 Homebrew 标准安装位置。
 - Claude 没有上下文数据：重新运行安装器，并在 Claude 会话产生一次 statusline 更新。
 - 点击 Agent 没有跳转：检查 macOS“系统设置 → 隐私与安全性 → 自动化”中的终端控制权限。
+- 点击 DeepSeek Harness 仍然新开 Chrome 标签页：确认“设置 → 浏览器标签页”显示为已开启，并在 macOS“系统设置 → 隐私与安全性 → 自动化”中允许 SwiftBar/Node.js 控制 Google Chrome；修改后刷新 SwiftBar 插件或点击“重启守护进程”。
 - 通知开关无法启用：重新点击“设置 → 通知”，确认允许安装依赖，并在系统通知设置中为 `terminal-notifier` 开启通知和横幅；看到测试通知后选择“已看到”。
 - 点击通知没有跳转：检查终端自动化权限，并确认通知对应的 Agent PID 仍然存活；发送失败时的 `osascript` 降级通知不支持点击跳转。
 
