@@ -11,7 +11,6 @@ const CONFIG_KEYS = [
   'contextPercent',
   'contextUsed',
   'contextTotal',
-  'browserTabReuse',
 ];
 
 const DEFAULT_DISPLAY_CONFIG = Object.freeze({
@@ -34,6 +33,7 @@ function normalizeDisplayConfig(value) {
     if (typeof value[key] === 'boolean') config[key] = value[key];
   }
   if (typeof value.notifications === 'boolean') config.notifications = value.notifications;
+  if (typeof value.browserTabReuse === 'boolean') config.browserTabReuse = value.browserTabReuse;
   return config;
 }
 
@@ -68,6 +68,12 @@ function setNotificationsEnabled(enabled, configFile = DEFAULT_CONFIG_FILE) {
   return writeDisplayConfig(config, configFile);
 }
 
+function setBrowserTabReuseEnabled(enabled, configFile = DEFAULT_CONFIG_FILE) {
+  const config = readDisplayConfig(configFile);
+  config.browserTabReuse = enabled === true;
+  return writeDisplayConfig(config, configFile);
+}
+
 if (require.main === module) {
   const [command, key] = process.argv.slice(2);
   try {
@@ -84,6 +90,7 @@ module.exports = {
   DEFAULT_DISPLAY_CONFIG,
   normalizeDisplayConfig,
   readDisplayConfig,
+  setBrowserTabReuseEnabled,
   setNotificationsEnabled,
   toggleDisplayConfig,
   writeDisplayConfig,

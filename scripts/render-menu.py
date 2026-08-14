@@ -74,7 +74,7 @@ def animation_mode(data):
 
 def render_menu(data, paths, now=None, static_icon=False, icon_frame=None):
     now = time.time() if now is None else now
-    focus_path, focus_web_path, node_cmd, restart_path, display_path, notification_path, startup_path = paths
+    focus_path, focus_web_path, node_cmd, restart_path, display_path, notification_path, browser_tab_path, startup_path = paths
     ui = data.get("ui", {})
     lines = []
 
@@ -164,6 +164,15 @@ def render_menu(data, paths, now=None, static_icon=False, icon_frame=None):
         lines.append(f"----{safe_text(action)} | bash={node_cmd} param0={notification_path} param1=toggle terminal=false refresh=true sfimage={icon} sfcolor={color}")
         lines.append(f"----{safe_text(ui.get('openNotificationSettings', 'Open System Notification Settings'))} | bash={node_cmd} param0={notification_path} param1=open-settings terminal=false sfimage=gearshape")
     lines.append(f"----{safe_text(ui.get('notificationSettingsApp', 'App shown in Notifications: terminal-notifier'))} | sfimage=app.badge disabled=true")
+    browser_tab_reuse = config.get("browserTabReuse") is True
+    browser_action = ui.get("disableBrowserTabReuse", "Click to disable browser tab reuse") if browser_tab_reuse else ui.get("enableBrowserTabReuse", "Click to enable browser tab reuse")
+    browser_icon = "checkmark.circle.fill" if browser_tab_reuse else "circle"
+    browser_color = "#34C759" if browser_tab_reuse else "#8E8E93"
+    lines.append(f"--{safe_text(ui.get('browserTabs', 'Browser tabs'))} | sfimage=rectangle.on.rectangle")
+    if node_cmd:
+        lines.append(f"----{safe_text(browser_action)} | bash={node_cmd} param0={browser_tab_path} param1=toggle terminal=false refresh=true sfimage={browser_icon} sfcolor={browser_color}")
+        lines.append(f"----{safe_text(ui.get('openAutomationSettings', 'Open Automation Settings'))} | bash={node_cmd} param0={browser_tab_path} param1=open-settings terminal=false sfimage=gearshape")
+    lines.append(f"----{safe_text(ui.get('browserTabReusePermission', 'Requires browser Automation permission'))} | sfimage=lock.shield disabled=true")
     lines.append(f"--{safe_text(ui.get('displayConfig', 'Display options'))} | sfimage=slider.horizontal.3")
     for key, label_key, fallback in (
         ("duration", "showDuration", "Duration"),
@@ -171,10 +180,8 @@ def render_menu(data, paths, now=None, static_icon=False, icon_frame=None):
         ("contextPercent", "showContextPercent", "Context usage percentage"),
         ("contextUsed", "showContextUsed", "Context used"),
         ("contextTotal", "showContextTotal", "Total context"),
-        ("browserTabReuse", "browserTabReuse", "Reuse browser tabs (requires Automation permission)"),
     ):
-        enabled = config.get(key) is True if key == "browserTabReuse" else visible(config, key)
-        checked = " checked=true" if enabled else ""
+        checked = " checked=true" if visible(config, key) else ""
         if node_cmd:
             lines.append(f"----{safe_text(ui.get(label_key, fallback))} | bash={node_cmd} param0={display_path} param1=toggle param2={key} terminal=false refresh=true{checked}")
 
@@ -204,26 +211,26 @@ def write_menu_cache(data, paths, prefix, cache_key):
 
 
 def main(argv):
-    if len(argv) < 8:
+    if len(argv) < 9:
         raise SystemExit(
-            "usage: render-menu.py STATUS FOCUS FOCUS_WEB NODE RESTART DISPLAY NOTIFICATIONS "
+            "usage: render-menu.py STATUS FOCUS FOCUS_WEB NODE RESTART DISPLAY NOTIFICATIONS BROWSER_TABS "
             "STARTUP [--static | --cache-prefix PREFIX --cache-key KEY]"
         )
     status_path = argv[0]
     with open(status_path, encoding="utf-8") as status_file:
         data = json.load(status_file)
-    options = argv[8:]
+    options = argv[9:]
     if "--cache-prefix" in options:
         prefix_index = options.index("--cache-prefix")
         key_index = options.index("--cache-key")
         write_menu_cache(
             data,
-            argv[1:8],
+            argv[1:9],
             options[prefix_index + 1],
             options[key_index + 1],
         )
         return
-    print(render_menu(data, argv[1:8], static_icon="--static" in options))
+    print(render_menu(data, argv[1:9], static_icon="--static" in options))
 
 
 if __name__ == "__main__":

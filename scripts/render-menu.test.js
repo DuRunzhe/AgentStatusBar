@@ -23,6 +23,7 @@ function render(data) {
     '/repo/restart-agent-monitor.sh',
     '/repo/display-config.js',
     '/repo/notification-settings.js',
+    '/repo/browser-tab-settings.js',
     '/repo/startup-settings.js',
     '--static',
   ], { encoding: 'utf8', env: { ...process.env, HOME: directory } });
@@ -44,6 +45,7 @@ function renderCache(data, cacheKey = 'status-key') {
     '/repo/restart-agent-monitor.sh',
     '/repo/display-config.js',
     '/repo/notification-settings.js',
+    '/repo/browser-tab-settings.js',
     '/repo/startup-settings.js',
     '--cache-prefix',
     cachePrefix,
@@ -158,7 +160,10 @@ test('renders browser tab reuse as an explicit setting', () => {
     ui: {
       settings: 'Settings',
       displayConfig: 'Display options',
-      browserTabReuse: 'Reuse browser tabs',
+      browserTabs: 'Browser tabs',
+      enableBrowserTabReuse: 'Click to enable browser tab reuse',
+      openAutomationSettings: 'Open Automation Settings',
+      browserTabReusePermission: 'Requires browser Automation permission',
       statusUnknown: 'Unknown',
     },
     agents: [{
@@ -175,7 +180,10 @@ test('renders browser tab reuse as an explicit setting', () => {
 
   assert.match(output, /param0=\/repo\/focus-web-url\.js param1=http:\/\/127\.0\.0\.1:3080\/ terminal=false/);
   assert.doesNotMatch(output, /param2=reuse-tabs/);
-  assert.match(output, /Reuse browser tabs .*param1=toggle param2=browserTabReuse/);
+  assert.match(output, /--Browser tabs \| sfimage=rectangle\.on\.rectangle/);
+  assert.match(output, /Click to enable browser tab reuse .*param0=\/repo\/browser-tab-settings\.js param1=toggle/);
+  assert.match(output, /Open Automation Settings .*param0=\/repo\/browser-tab-settings\.js param1=open-settings/);
+  assert.doesNotMatch(output, /param2=browserTabReuse/);
 });
 
 test('sanitizes SwiftBar delimiters in dynamic text', () => {

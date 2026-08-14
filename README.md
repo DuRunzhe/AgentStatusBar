@@ -207,7 +207,7 @@ OpenCode SQLite/model catalog ────────────────�
 点击 DeepSeek Harness Web 行 ──> focus-web-url.js ──> 已有浏览器标签页或新本地页面
 ```
 
-DeepSeek Harness Web 标签页精确复用由“设置 → 显示配置 → 复用浏览器标签页（需要自动化权限）”控制。开启后会通过 macOS 自动化权限读取 Chrome/Edge/Brave/Safari 标签并跳转到已有本地页面；关闭时不读取浏览器标签，只激活已运行浏览器，避免在未授权时继续新开重复页面。
+DeepSeek Harness Web 标签页精确复用由“设置 → 浏览器标签页”控制，交互方式与通知设置类似。开启时会引导配置 macOS 自动化权限，之后读取 Chrome 标签并跳转到已有本地页面；关闭时不读取浏览器标签，只激活已运行浏览器，避免在未授权时继续新开重复页面。
 
 ### 技术方案
 
