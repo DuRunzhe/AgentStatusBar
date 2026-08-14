@@ -19,4 +19,6 @@ test('builds a browser focus script for an existing local tab', () => {
   assert.match(script, /Google Chrome/);
   assert.match(script, /Safari/);
   assert.match(script, /http:\/\/127\.0\.0\.1:3080\//);
+  assert.match(script, /activeTabIndex = tabIndex \+ 1/);
+  assert.doesNotMatch(script, /active tab index/);
 });

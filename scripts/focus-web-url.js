@@ -15,60 +15,69 @@ function normalizeLocalUrl(value) {
 }
 
 function buildBrowserFocusScript(url) {
-  const escapedUrl = url.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
   return `
-on normalizeUrl(rawUrl)
-  if rawUrl starts with "http://localhost:" then
-    set rawUrl to "http://127.0.0.1:" & text 18 thru -1 of rawUrl
-  end if
-  if rawUrl contains "?" then set rawUrl to text 1 thru ((offset of "?" in rawUrl) - 1) of rawUrl
-  if rawUrl contains "#" then set rawUrl to text 1 thru ((offset of "#" in rawUrl) - 1) of rawUrl
-  if rawUrl does not end with "/" then set rawUrl to rawUrl & "/"
-  return rawUrl
-end normalizeUrl
+(() => {
+function normalizeUrl(rawUrl) {
+  let value = String(rawUrl || '').trim();
+  if (value.startsWith('http://localhost:')) {
+    value = 'http://127.0.0.1:' + value.slice('http://localhost:'.length);
+  }
+  value = value.split('?')[0].split('#')[0];
+  if (!value.endsWith('/')) value += '/';
+  return value;
+}
 
-set targetUrl to "${escapedUrl}"
-set targetUrl to normalizeUrl(targetUrl)
+const targetUrl = normalizeUrl(${JSON.stringify(url)});
 
-set chromiumApps to {"Google Chrome", "Microsoft Edge", "Brave Browser"}
-repeat with browserName in chromiumApps
-  if application browserName is running then
-    tell application browserName
-      repeat with theWindow in windows
-        repeat with theTab in tabs of theWindow
-          if my normalizeUrl(URL of theTab as text) is targetUrl then
-            set active tab index of theWindow to (index of theTab)
-            set index of theWindow to 1
-            activate
-            return browserName
-          end if
-        end repeat
-      end repeat
-    end tell
-  end if
-end repeat
+function getApplication(name) {
+  try {
+    return Application(name);
+  } catch {
+    return null;
+  }
+}
 
-if application "Safari" is running then
-  tell application "Safari"
-    repeat with theWindow in windows
-      repeat with theTab in tabs of theWindow
-        if my normalizeUrl(URL of theTab as text) is targetUrl then
-          set current tab of theWindow to theTab
-          set index of theWindow to 1
-          activate
-          return "Safari"
-        end if
-      end repeat
-    end repeat
-  end tell
-end if
+for (const browserName of ['Google Chrome', 'Microsoft Edge', 'Brave Browser']) {
+  const browser = getApplication(browserName);
+  if (!browser) continue;
+  if (!browser.running()) continue;
+  const windows = browser.windows();
+  for (let windowIndex = 0; windowIndex < windows.length; windowIndex += 1) {
+    const tabs = windows[windowIndex].tabs();
+    for (let tabIndex = 0; tabIndex < tabs.length; tabIndex += 1) {
+      if (normalizeUrl(tabs[tabIndex].url()) === targetUrl) {
+        windows[windowIndex].activeTabIndex = tabIndex + 1;
+        windows[windowIndex].index = 1;
+        browser.activate();
+        return browserName;
+      }
+    }
+  }
+}
 
-return ""
+const safari = getApplication('Safari');
+if (safari && safari.running()) {
+  const windows = safari.windows();
+  for (let windowIndex = 0; windowIndex < windows.length; windowIndex += 1) {
+    const tabs = windows[windowIndex].tabs();
+    for (let tabIndex = 0; tabIndex < tabs.length; tabIndex += 1) {
+      if (normalizeUrl(tabs[tabIndex].url()) === targetUrl) {
+        windows[windowIndex].currentTab = tabs[tabIndex];
+        windows[windowIndex].index = 1;
+        safari.activate();
+        return 'Safari';
+      }
+    }
+  }
+}
+
+return '';
+})();
 `;
 }
 
 function focusExistingBrowserTab(url) {
-  const result = spawnSync('/usr/bin/osascript', ['-e', buildBrowserFocusScript(url)], {
+  const result = spawnSync('/usr/bin/osascript', ['-l', 'JavaScript', '-e', buildBrowserFocusScript(url)], {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
     timeout: 5000,
