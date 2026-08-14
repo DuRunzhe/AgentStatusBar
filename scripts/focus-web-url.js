@@ -32,40 +32,36 @@ set targetUrl to normalizeUrl(targetUrl)
 
 set chromiumApps to {"Google Chrome", "Microsoft Edge", "Brave Browser"}
 repeat with browserName in chromiumApps
-  try
-    if application browserName is running then
-      tell application browserName
-        repeat with theWindow in windows
-          repeat with theTab in tabs of theWindow
-            if my normalizeUrl(URL of theTab as text) is targetUrl then
-              set active tab index of theWindow to (index of theTab)
-              set index of theWindow to 1
-              activate
-              return browserName
-            end if
-          end repeat
-        end repeat
-      end tell
-    end if
-  end try
-end repeat
-
-try
-  if application "Safari" is running then
-    tell application "Safari"
+  if application browserName is running then
+    tell application browserName
       repeat with theWindow in windows
         repeat with theTab in tabs of theWindow
           if my normalizeUrl(URL of theTab as text) is targetUrl then
-            set current tab of theWindow to theTab
+            set active tab index of theWindow to (index of theTab)
             set index of theWindow to 1
             activate
-            return "Safari"
+            return browserName
           end if
         end repeat
       end repeat
     end tell
   end if
-end try
+end repeat
+
+if application "Safari" is running then
+  tell application "Safari"
+    repeat with theWindow in windows
+      repeat with theTab in tabs of theWindow
+        if my normalizeUrl(URL of theTab as text) is targetUrl then
+          set current tab of theWindow to theTab
+          set index of theWindow to 1
+          activate
+          return "Safari"
+        end if
+      end repeat
+    end repeat
+  end tell
+end if
 
 return ""
 `;
@@ -74,16 +70,47 @@ return ""
 function focusExistingBrowserTab(url) {
   const result = spawnSync('/usr/bin/osascript', ['-e', buildBrowserFocusScript(url)], {
     encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'ignore'],
+    stdio: ['ignore', 'pipe', 'pipe'],
     timeout: 5000,
   });
-  return result.status === 0 && Boolean(result.stdout.trim());
+  return {
+    focused: result.status === 0 && Boolean(result.stdout.trim()),
+    automationDenied: result.stderr.includes('-1743'),
+  };
+}
+
+function isAppRunning(appName) {
+  const result = spawnSync('/usr/bin/osascript', [
+    '-e',
+    `application "${appName.replaceAll('"', '\\"')}" is running`,
+  ], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+    timeout: 1000,
+  });
+  return result.status === 0 && result.stdout.trim() === 'true';
+}
+
+function activateFirstRunningBrowser(appNames = ['Google Chrome', 'Microsoft Edge', 'Brave Browser', 'Safari']) {
+  const appName = appNames.find(isAppRunning);
+  if (!appName) return false;
+  try {
+    execFileSync('/usr/bin/open', ['-a', appName], {
+      stdio: 'ignore',
+      timeout: 5000,
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function focusWebUrl(value) {
   const url = normalizeLocalUrl(value);
   if (!url) return false;
-  if (focusExistingBrowserTab(url)) return true;
+  const tabFocus = focusExistingBrowserTab(url);
+  if (tabFocus.focused) return true;
+  if (tabFocus.automationDenied && activateFirstRunningBrowser()) return true;
   try {
     execFileSync('/usr/bin/open', [url], {
       stdio: 'ignore',
@@ -102,7 +129,9 @@ if (require.main === module) {
 }
 
 module.exports = {
+  activateFirstRunningBrowser,
   buildBrowserFocusScript,
   focusWebUrl,
+  isAppRunning,
   normalizeLocalUrl,
 };
