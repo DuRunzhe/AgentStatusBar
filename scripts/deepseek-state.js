@@ -178,14 +178,22 @@ function readDeepSeekSessionText(sessionFile, run = spawnSync) {
 function parseSessionSignals(text) {
   let model = null;
   const pendingApprovals = new Set();
+  const pendingUserInput = new Set();
   const lines = String(text || '').trim().split('\n').slice(-SESSION_TAIL_LINES);
   for (const line of lines) {
     try {
       const event = JSON.parse(line);
-      if (event?.type === 'approval/asked' && typeof event?.data?.id === 'string') {
-        pendingApprovals.add(event.data.id);
-      } else if (event?.type === 'approval/decided' && typeof event?.data?.id === 'string') {
-        pendingApprovals.delete(event.data.id);
+      const data = event?.data || {};
+      if (event?.type === 'approval/asked' && typeof data.id === 'string') {
+        pendingApprovals.add(data.id);
+      } else if (event?.type === 'approval/decided' && typeof data.id === 'string') {
+        pendingApprovals.delete(data.id);
+      } else if (event?.type === 'tool/call' && data.name === 'ask_user_question' && typeof data.callId === 'string') {
+        // dsh 等用户回答时以 ask_user_question 工具调用挂起，回答后才有 tool/result
+        pendingUserInput.add(data.callId);
+      } else if (event?.type === 'tool/result' && data?.message?.source?.kind === 'tool') {
+        const callId = data.message.source.callId;
+        if (typeof callId === 'string') pendingUserInput.delete(callId);
       }
       const candidate = event?.data?.message?.source?.model;
       if (event?.type === 'assistant/message' && typeof candidate === 'string' && candidate.trim()) {
@@ -193,7 +201,10 @@ function parseSessionSignals(text) {
       }
     } catch {}
   }
-  return { model, pendingKind: pendingApprovals.size > 0 ? 'approval' : null };
+  let pendingKind = null;
+  if (pendingUserInput.size > 0) pendingKind = 'user_input';
+  else if (pendingApprovals.size > 0) pendingKind = 'approval';
+  return { model, pendingKind };
 }
 
 function getDeepSeekSessionSignals(sessionFile, run = spawnSync, { now = Date.now() } = {}) {
@@ -248,6 +259,11 @@ function getDeepSeekRuntimeForCwd(cwd, {
   };
   if (!stats) return { state: null, ...baseRuntime };
 
+  // 等用户回复（ask_user_question 挂起）优先于 openStep 判定，
+  // 因为等待期间 step 仍保持 open，若不提前返回会被误判为 working
+  if (signals.pendingKind === 'user_input') {
+    return { state: 'waiting_reply', ...baseRuntime };
+  }
   if (signals.pendingKind === 'approval') {
     return { state: 'waiting', ...baseRuntime };
   }

@@ -308,6 +308,85 @@ test('extracts model and pending approvals from session log text', () => {
   assert.equal(signals.pendingKind, 'approval');
 });
 
+test('extracts pending user input from an unanswered ask_user_question call', () => {
+  const signals = parseSessionSignals(JSON.stringify({
+    type: 'tool/call',
+    data: { turn: 1, step: 3, callId: 'call_ask_9', name: 'ask_user_question', arguments: '{}' },
+  }));
+  assert.equal(signals.pendingKind, 'user_input');
+});
+
+test('clears pending user input once the user answers the question', () => {
+  const signals = parseSessionSignals([
+    JSON.stringify({ type: 'tool/call', data: { turn: 1, step: 3, callId: 'call_ask_9', name: 'ask_user_question', arguments: '{}' } }),
+    JSON.stringify({ type: 'tool/result', data: { turn: 1, step: 3, message: { source: { kind: 'tool', callId: 'call_ask_9' } } } }),
+  ].join('\n'));
+  assert.equal(signals.pendingKind, null);
+});
+
+test('prefers user-input waits over approval waits in session signals', () => {
+  const signals = parseSessionSignals([
+    JSON.stringify({ type: 'approval/asked', data: { id: 'approval-1' } }),
+    JSON.stringify({ type: 'tool/call', data: { callId: 'call_ask_1', name: 'ask_user_question', arguments: '{}' } }),
+  ].join('\n'));
+  assert.equal(signals.pendingKind, 'user_input');
+});
+
+test('classifies an unanswered ask_user_question as waiting for user reply, not working', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-statusbar-dsh-user-input-test-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const cwd = '/Users/me/code/demo-app';
+  writeSession(root, cwd, 'session-a', 2000);
+  // 等待期间 step 仍 open，正是导致误判 working 的场景
+  writeProjectionCache(root, {
+    'session-a': {
+      rows: {
+        sessionStats: {
+          val: { openStep: { turn: 1, step: 3 }, pendingCalls: {} },
+        },
+      },
+    },
+  }, 2500);
+  const stdout = JSON.stringify({
+    type: 'tool/call',
+    data: { turn: 1, step: 3, callId: 'call_ask_1', name: 'ask_user_question', arguments: '{"questions":[]}' },
+  });
+
+  const runtime = getDeepSeekRuntimeForCwd(cwd, {
+    dshHome: root,
+    now: 3000,
+    run: () => ({ status: 0, stdout }),
+  });
+  assert.equal(runtime.state, 'waiting_reply');
+});
+
+test('does not keep DeepSeek waiting after the user answers the question', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-statusbar-dsh-user-input-resolved-test-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const cwd = '/Users/me/code/demo-app';
+  writeSession(root, cwd, 'session-a', 2000);
+  writeProjectionCache(root, {
+    'session-a': {
+      rows: {
+        sessionStats: {
+          val: { openStep: null, pendingCalls: {} },
+        },
+      },
+    },
+  }, 2500);
+  const stdout = [
+    JSON.stringify({ type: 'tool/call', data: { turn: 1, step: 3, callId: 'call_ask_1', name: 'ask_user_question', arguments: '{}' } }),
+    JSON.stringify({ type: 'tool/result', data: { turn: 1, step: 3, message: { source: { kind: 'tool', callId: 'call_ask_1' } } } }),
+  ].join('\n');
+
+  const runtime = getDeepSeekRuntimeForCwd(cwd, {
+    dshHome: root,
+    now: 3000,
+    run: () => ({ status: 0, stdout }),
+  });
+  assert.equal(runtime.state, 'ready');
+});
+
 test('reuses cached session signals while the file is unchanged', t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-statusbar-dsh-cache-hit-test-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
