@@ -38,6 +38,7 @@ const {
   getOpenCodeRuntimeForCwd,
   pruneOpenCodeRuntimeCache,
 } = require('./opencode-state');
+const { getDeepSeekRuntimeForCwd } = require('./deepseek-state');
 const {
   getClaudeModelInLines,
   getCodexModelInLines,
@@ -681,9 +682,13 @@ function getInstances(
       ? getOpenCodeRuntimeForCwd(cwd, agentDef.sessionDir)
       : null;
     if (agentDef.name === 'OpenCode' && cwd) cacheUsage?.openCodeCwds.add(cwd);
+    const deepSeekRuntime = agentDef.name === 'DeepSeek Harness'
+      ? getDeepSeekRuntimeForCwd(cwd)
+      : null;
+    if (deepSeekRuntime?.sessionFile) cacheUsage?.sessionFiles.add(deepSeekRuntime.sessionFile);
     const nativeState = agentDef.name === 'Claude'
       ? getClaudeNativeState(claudeRuntime)
-      : openCodeRuntime?.state || null;
+      : openCodeRuntime?.state || deepSeekRuntime?.state || null;
     let sessionAnalysis = agentDef.name === 'Claude' || agentDef.name === 'Codex'
       ? analyzeSessionFile(group.sessionFile, agentDef.name)
       : null;
@@ -701,9 +706,9 @@ function getInstances(
     }
     const status = determineState(
       group.pids,
-      mtime,
+      deepSeekRuntime?.lastActivityMs || mtime,
       now,
-      group.sessionFile,
+      deepSeekRuntime?.sessionFile || group.sessionFile,
       agentDef.name,
       nativeState,
       openCodeRuntime ? [] : processes,
@@ -729,8 +734,9 @@ function getInstances(
     } else if (agentDef.name === 'DeepSeek Harness') {
       openUrl = getDeepSeekHarnessWebUrl(firstPid, agentDef, processes);
     }
-    const lastActivityMs = openCodeRuntime?.lastActivityMs >= processStartedAt
-      ? openCodeRuntime.lastActivityMs
+    const runtimeActivityMs = openCodeRuntime?.lastActivityMs || deepSeekRuntime?.lastActivityMs || null;
+    const lastActivityMs = runtimeActivityMs >= processStartedAt
+      ? runtimeActivityMs
       : mtime;
     return {
       ...status,
