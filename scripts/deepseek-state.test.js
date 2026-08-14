@@ -7,6 +7,7 @@ const os = require('os');
 const path = require('path');
 const {
   SESSION_DECODE_COOLDOWN_MS,
+  ZSTD_COMMANDS,
   buildZstdTailCommand,
   encodeProjectKey,
   findLatestSessionFile,
@@ -16,6 +17,7 @@ const {
   getDeepSeekSessionSignals,
   parseSessionSignals,
   readFileTail,
+  runZstdDecode,
 } = require('./deepseek-state');
 
 function writeSession(root, cwd, sessionId, mtimeMs) {
@@ -276,9 +278,21 @@ test('returns DeepSeek model and context usage in runtime data', t => {
   });
 });
 
-test('builds a zstd tail pipeline that quotes the session path', () => {
+test('builds a zstd tail pipeline that quotes the session path and propagates failures', () => {
   const command = buildZstdTailCommand('/usr/local/bin/zstd', '/tmp/a b/session.jsonl.zstd');
-  assert.match(command, /^\/usr\/local\/bin\/zstd -dc '\/tmp\/a b\/session\.jsonl\.zstd' \| \/usr\/bin\/tail -c 262144$/);
+  assert.match(command, /^set -o pipefail; \/usr\/local\/bin\/zstd -dc '\/tmp\/a b\/session\.jsonl\.zstd' \| \/usr\/bin\/tail -c 262144$/);
+});
+
+test('falls back to the next zstd binary when a decode returns empty output', () => {
+  // 模拟管道中 zstd 缺失：tail 把退出码掩盖成 0，返回空 stdout
+  const attempts = [];
+  const run = (command, args) => {
+    attempts.push(args[0]);
+    return { status: 0, stdout: '' };
+  };
+  const decoded = runZstdDecode('/tmp/session.jsonl.zstd', run);
+  assert.equal(decoded, '');
+  assert.equal(attempts.length, ZSTD_COMMANDS.length);
 });
 
 test('reads only the tail of a plain-text session file', t => {

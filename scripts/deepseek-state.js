@@ -135,7 +135,9 @@ function shellQuote(value) {
 }
 
 function buildZstdTailCommand(command, sessionFile) {
-  return `${command} -dc ${shellQuote(sessionFile)} | /usr/bin/tail -c ${SESSION_TAIL_BYTES}`;
+  // pipefail 让管道继承 zstd 的失败退出码，否则缺失 zstd 时
+  // tail 的退出码（0）会掩盖失败，导致空结果被当作成功返回
+  return `set -o pipefail; ${command} -dc ${shellQuote(sessionFile)} | /usr/bin/tail -c ${SESSION_TAIL_BYTES}`;
 }
 
 function runZstdDecode(sessionFile, run) {
@@ -146,7 +148,8 @@ function runZstdDecode(sessionFile, run) {
       stdio: ['ignore', 'pipe', 'ignore'],
       timeout: 2000,
     });
-    if (result.status === 0) return result.stdout;
+    // 空输出视为失败，继续尝试下一个 zstd 候选（绝对路径）
+    if (result.status === 0 && result.stdout) return result.stdout;
   }
   return '';
 }
@@ -282,6 +285,7 @@ function getDeepSeekRuntimeForCwd(cwd, {
 
 module.exports = {
   SESSION_DECODE_COOLDOWN_MS,
+  ZSTD_COMMANDS,
   buildZstdTailCommand,
   encodeProjectKey,
   findLatestSessionFile,
