@@ -11,10 +11,12 @@ const CONFIG_KEYS = [
   'contextPercent',
   'contextUsed',
   'contextTotal',
+  'browserTabReuse',
 ];
 
 const DEFAULT_DISPLAY_CONFIG = Object.freeze({
   ...Object.fromEntries(CONFIG_KEYS.map(key => [key, true])),
+  browserTabReuse: false,
   notifications: false,
 });
 

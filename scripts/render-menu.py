@@ -139,7 +139,8 @@ def render_menu(data, paths, now=None, static_icon=False, icon_frame=None):
             elif pids and node_cmd:
                 url = safe_url(instance.get("open_url"))
                 if url:
-                    line += f" bash={node_cmd} param0={focus_web_path} param1={url} terminal=false"
+                    reuse_arg = " param2=reuse-tabs" if config.get("browserTabReuse") is True else ""
+                    line += f" bash={node_cmd} param0={focus_web_path} param1={url}{reuse_arg} terminal=false"
                 else:
                     line += f" bash={node_cmd} param0={focus_path} param1={pids[0]} terminal=false"
             lines.append(line)
@@ -170,8 +171,10 @@ def render_menu(data, paths, now=None, static_icon=False, icon_frame=None):
         ("contextPercent", "showContextPercent", "Context usage percentage"),
         ("contextUsed", "showContextUsed", "Context used"),
         ("contextTotal", "showContextTotal", "Total context"),
+        ("browserTabReuse", "browserTabReuse", "Reuse browser tabs (requires Automation permission)"),
     ):
-        checked = " checked=true" if visible(config, key) else ""
+        enabled = config.get(key) is True if key == "browserTabReuse" else visible(config, key)
+        checked = " checked=true" if enabled else ""
         if node_cmd:
             lines.append(f"----{safe_text(ui.get(label_key, fallback))} | bash={node_cmd} param0={display_path} param1=toggle param2={key} terminal=false refresh=true{checked}")
 

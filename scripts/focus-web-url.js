@@ -105,12 +105,16 @@ function activateFirstRunningBrowser(appNames = ['Google Chrome', 'Microsoft Edg
   }
 }
 
-function focusWebUrl(value) {
+function focusWebUrl(value, { reuseTabs = false } = {}) {
   const url = normalizeLocalUrl(value);
   if (!url) return false;
-  const tabFocus = focusExistingBrowserTab(url);
-  if (tabFocus.focused) return true;
-  if (tabFocus.automationDenied && activateFirstRunningBrowser()) return true;
+  if (reuseTabs) {
+    const tabFocus = focusExistingBrowserTab(url);
+    if (tabFocus.focused) return true;
+    if (tabFocus.automationDenied && activateFirstRunningBrowser()) return true;
+  } else if (activateFirstRunningBrowser()) {
+    return true;
+  }
   try {
     execFileSync('/usr/bin/open', [url], {
       stdio: 'ignore',
@@ -123,7 +127,7 @@ function focusWebUrl(value) {
 }
 
 if (require.main === module) {
-  if (!focusWebUrl(process.argv[2])) {
+  if (!focusWebUrl(process.argv[2], { reuseTabs: process.argv[3] === 'reuse-tabs' })) {
     process.exitCode = 1;
   }
 }

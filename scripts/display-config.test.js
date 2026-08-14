@@ -22,11 +22,13 @@ test('uses enabled defaults when display config is missing', () => {
 test('accepts only known boolean display settings', () => {
   assert.deepEqual(normalizeDisplayConfig({
     duration: false,
+    browserTabReuse: true,
     model: 'false',
     unknown: false,
   }), {
     ...DEFAULT_DISPLAY_CONFIG,
     duration: false,
+    browserTabReuse: true,
   });
 });
 
@@ -38,6 +40,7 @@ test('toggles and persists a display setting', t => {
   assert.equal(toggleDisplayConfig('model', configFile).model, false);
   assert.equal(readDisplayConfig(configFile).model, false);
   assert.equal(toggleDisplayConfig('model', configFile).model, true);
+  assert.equal(toggleDisplayConfig('browserTabReuse', configFile).browserTabReuse, true);
 });
 
 test('rejects unknown display settings', () => {

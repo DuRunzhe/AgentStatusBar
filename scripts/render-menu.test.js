@@ -133,7 +133,7 @@ test('renders waiting and stopped states with lightweight symbols', () => {
 test('renders web agent instances as browser links', () => {
   const output = render({
     summary: '🟢 1 ready',
-    display_config: {},
+    display_config: { browserTabReuse: true },
     ui: { statusUnknown: 'Unknown' },
     agents: [{
       name: 'DeepSeek Harness',
@@ -147,8 +147,35 @@ test('renders web agent instances as browser links', () => {
     }],
   });
 
-  assert.match(output, /🟢 DeepSeek Harness: Ready .*param0=\/repo\/focus-web-url\.js param1=http:\/\/127\.0\.0\.1:3080\/ terminal=false/);
+  assert.match(output, /🟢 DeepSeek Harness: Ready .*param0=\/repo\/focus-web-url\.js param1=http:\/\/127\.0\.0\.1:3080\/ param2=reuse-tabs terminal=false/);
   assert.doesNotMatch(output, /param1=387 terminal=false/);
+});
+
+test('renders browser tab reuse as an explicit setting', () => {
+  const output = render({
+    summary: '🟢 1 ready',
+    display_config: { browserTabReuse: false },
+    ui: {
+      settings: 'Settings',
+      displayConfig: 'Display options',
+      browserTabReuse: 'Reuse browser tabs',
+      statusUnknown: 'Unknown',
+    },
+    agents: [{
+      name: 'DeepSeek Harness',
+      instances: [{
+        state: 'ready',
+        label: 'DeepSeek Harness',
+        status_label: 'Ready',
+        pids: [387],
+        open_url: 'http://127.0.0.1:3080/',
+      }],
+    }],
+  });
+
+  assert.match(output, /param0=\/repo\/focus-web-url\.js param1=http:\/\/127\.0\.0\.1:3080\/ terminal=false/);
+  assert.doesNotMatch(output, /param2=reuse-tabs/);
+  assert.match(output, /Reuse browser tabs .*param1=toggle param2=browserTabReuse/);
 });
 
 test('sanitizes SwiftBar delimiters in dynamic text', () => {
