@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const {
   detectCodexTerminalState,
   hasFreshTerminalApproval,
+  hasFreshTerminalNonApproval,
   parseTerminalTabs,
   probeTerminalTabs,
   readFreshTerminalSnapshot,
@@ -109,4 +110,33 @@ test('uses approval only for a matching TTY', () => {
   };
 
   assert.equal(hasFreshTerminalApproval(snapshot, ['/dev/ttys002'], 3000), false);
+});
+
+test('detects a fresh sampled Codex terminal that is no longer showing approval', () => {
+  const snapshot = {
+    updatedAtMs: 4000,
+    terminalRunning: true,
+    targetTtys: ['/dev/ttys016'],
+    states: {},
+  };
+
+  assert.equal(hasFreshTerminalNonApproval(snapshot, ['/dev/ttys016'], 3000), true);
+  assert.equal(hasFreshTerminalNonApproval(snapshot, ['/dev/ttys002'], 3000), false);
+  assert.equal(hasFreshTerminalNonApproval(snapshot, ['/dev/ttys016'], 4001), false);
+});
+
+test('does not treat an unsampled or unavailable terminal as non-approval', () => {
+  assert.equal(hasFreshTerminalNonApproval({
+    updatedAtMs: 4000,
+    terminalRunning: false,
+    targetTtys: ['/dev/ttys016'],
+    states: {},
+  }, ['/dev/ttys016'], 3000), false);
+
+  assert.equal(hasFreshTerminalNonApproval({
+    updatedAtMs: 4000,
+    terminalRunning: true,
+    targetTtys: [],
+    states: {},
+  }, ['/dev/ttys016'], 3000), false);
 });

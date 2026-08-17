@@ -130,6 +130,20 @@ function hasFreshTerminalApproval(snapshot, targetTtys, lastSessionActivityMs = 
   return targetTtys.some(tty => snapshot.states?.[tty] === 'approval');
 }
 
+function hasFreshTerminalNonApproval(snapshot, targetTtys, lastSessionActivityMs = 0) {
+  if (!snapshot || !Number.isFinite(snapshot.updatedAtMs)) return false;
+  if (snapshot.terminalRunning !== true) return false;
+  if (Number.isFinite(lastSessionActivityMs)
+    && lastSessionActivityMs > snapshot.updatedAtMs) {
+    return false;
+  }
+
+  const sampledTtys = new Set(Array.isArray(snapshot.targetTtys) ? snapshot.targetTtys : []);
+  return targetTtys.some(tty =>
+    sampledTtys.has(tty) && snapshot.states?.[tty] !== 'approval'
+  );
+}
+
 function parseCliArgs(argv) {
   const outputIndex = argv.indexOf('--output');
   if (outputIndex < 0 || !argv[outputIndex + 1]) return null;
@@ -186,6 +200,7 @@ module.exports = {
   APPROVAL_PROMPT_PATTERNS,
   detectCodexTerminalState,
   hasFreshTerminalApproval,
+  hasFreshTerminalNonApproval,
   parseTerminalTabs,
   probeTerminalTabs,
   readFreshTerminalSnapshot,

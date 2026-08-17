@@ -32,6 +32,7 @@ const {
 const { resolveAgentState } = require('./state-priority');
 const {
   hasFreshTerminalApproval,
+  hasFreshTerminalNonApproval,
   readFreshTerminalSnapshot,
 } = require('./terminal-prompt-state');
 const {
@@ -704,7 +705,9 @@ function getInstances(
     const groupTtys = group.pids
       .map(pid => processes.find(processInfo => processInfo.pid === pid)?.tty)
       .filter(Boolean);
-    if (agentDef.name === 'Codex' && sessionAnalysis?.pendingKind === 'running') {
+    const hasActiveChild = group.pids.some(pid => hasActiveChildProcesses(pid, agentDef.name, processes));
+    if (agentDef.name === 'Codex'
+      && (sessionAnalysis?.pendingKind === 'running' || sessionAnalysis?.pendingKind === 'approval')) {
       for (const tty of groupTtys) terminalProbeTtys?.add(tty);
     }
     const hasTerminalApproval = agentDef.name === 'Codex'
@@ -712,6 +715,11 @@ function getInstances(
       && hasFreshTerminalApproval(terminalSnapshot, groupTtys, mtime);
     if (hasTerminalApproval) {
       sessionAnalysis = { ...sessionAnalysis, pendingKind: 'approval' };
+    } else if (agentDef.name === 'Codex'
+      && sessionAnalysis?.pendingKind === 'approval'
+      && hasActiveChild
+      && hasFreshTerminalNonApproval(terminalSnapshot, groupTtys, mtime)) {
+      sessionAnalysis = { ...sessionAnalysis, pendingKind: 'running' };
     }
     const status = determineState(
       group.pids,
