@@ -29,10 +29,10 @@ const {
   prunePidCaches,
   pruneSessionAnalysisCache,
 } = require('./cache-state');
-const { resolveAgentState } = require('./state-priority');
+const { resolveAgentState, resolveCodexPendingKind } = require('./state-priority');
 const {
   hasFreshTerminalApproval,
-  hasFreshTerminalNonApproval,
+  hasFreshTerminalWorking,
   readFreshTerminalSnapshot,
 } = require('./terminal-prompt-state');
 const {
@@ -710,16 +710,16 @@ function getInstances(
       && (sessionAnalysis?.pendingKind === 'running' || sessionAnalysis?.pendingKind === 'approval')) {
       for (const tty of groupTtys) terminalProbeTtys?.add(tty);
     }
-    const hasTerminalApproval = agentDef.name === 'Codex'
-      && sessionAnalysis?.pendingKind === 'running'
-      && hasFreshTerminalApproval(terminalSnapshot, groupTtys, mtime);
-    if (hasTerminalApproval) {
-      sessionAnalysis = { ...sessionAnalysis, pendingKind: 'approval' };
-    } else if (agentDef.name === 'Codex'
-      && sessionAnalysis?.pendingKind === 'approval'
-      && hasActiveChild
-      && hasFreshTerminalNonApproval(terminalSnapshot, groupTtys, mtime)) {
-      sessionAnalysis = { ...sessionAnalysis, pendingKind: 'running' };
+    if (agentDef.name === 'Codex' && sessionAnalysis) {
+      const pendingKind = resolveCodexPendingKind({
+        pendingKind: sessionAnalysis.pendingKind,
+        hasActiveChild,
+        terminalApproval: hasFreshTerminalApproval(terminalSnapshot, groupTtys, mtime),
+        terminalWorking: hasFreshTerminalWorking(terminalSnapshot, groupTtys, mtime),
+      });
+      if (pendingKind !== sessionAnalysis.pendingKind) {
+        sessionAnalysis = { ...sessionAnalysis, pendingKind };
+      }
     }
     const status = determineState(
       group.pids,

@@ -1,5 +1,16 @@
 'use strict';
 
+function resolveCodexPendingKind({
+  pendingKind = null,
+  hasActiveChild = false,
+  terminalApproval = false,
+  terminalWorking = false,
+}) {
+  if (pendingKind === 'running' && terminalApproval) return 'approval';
+  if (pendingKind === 'approval' && hasActiveChild && terminalWorking) return 'running';
+  return pendingKind;
+}
+
 function resolveAgentState({
   alive,
   pendingKind = null,
@@ -24,4 +35,4 @@ function resolveAgentState({
   return null;
 }
 
-module.exports = { resolveAgentState };
+module.exports = { resolveAgentState, resolveCodexPendingKind };

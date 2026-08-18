@@ -26,21 +26,36 @@ const APPROVAL_PROMPT_PATTERNS = Object.freeze({
   ],
 });
 
+// Codex renders an active turn in the terminal status line. In particular,
+// background exec work can leave the rollout with an unresolved tool call
+// while the TUI is already running it. That transcript shape must not be
+// treated as a confirmation prompt.
+const WORKING_STATUS_PATTERNS = Object.freeze([
+  /\besc\s+to\s+interrupt\b/i,
+  /\bbackground\s+terminals?\s+running\b/i,
+]);
+
 function matchesAny(patterns, value) {
   return patterns.some(pattern => pattern.test(value));
 }
 
 function detectCodexTerminalState(contents) {
   const visible = String(contents || '').trimEnd();
-  if (!matchesAny(APPROVAL_PROMPT_PATTERNS.footer, visible)) return null;
 
   // Limit matching to the prompt at the bottom of the visible terminal. Old
   // approval text elsewhere in the scrollback must not affect current state.
   const prompt = visible.slice(-2000);
+  const hasFooter = matchesAny(APPROVAL_PROMPT_PATTERNS.footer, visible);
   const hasChoices = matchesAny(APPROVAL_PROMPT_PATTERNS.affirmativeChoice, prompt)
     && matchesAny(APPROVAL_PROMPT_PATTERNS.negativeChoice, prompt);
   const hasQuestion = matchesAny(APPROVAL_PROMPT_PATTERNS.question, prompt);
-  return hasChoices && hasQuestion ? 'approval' : null;
+  if (hasFooter && hasChoices && hasQuestion) return 'approval';
+
+  // Check the current bottom-of-terminal window rather than the complete
+  // scrollback. This is an explicit positive working signal, so an old
+  // approval prompt above it cannot win merely because a tool call remains
+  // unmatched in the rollout file.
+  return matchesAny(WORKING_STATUS_PATTERNS, prompt) ? 'working' : null;
 }
 
 function parseTerminalTabs(output, targetTtys = null) {
@@ -130,6 +145,16 @@ function hasFreshTerminalApproval(snapshot, targetTtys, lastSessionActivityMs = 
   return targetTtys.some(tty => snapshot.states?.[tty] === 'approval');
 }
 
+function hasFreshTerminalWorking(snapshot, targetTtys, lastSessionActivityMs = 0) {
+  if (!snapshot || !Number.isFinite(snapshot.updatedAtMs)) return false;
+  if (Number.isFinite(lastSessionActivityMs)
+    && lastSessionActivityMs > snapshot.updatedAtMs) {
+    return false;
+  }
+
+  return targetTtys.some(tty => snapshot.states?.[tty] === 'working');
+}
+
 function hasFreshTerminalNonApproval(snapshot, targetTtys, lastSessionActivityMs = 0) {
   if (!snapshot || !Number.isFinite(snapshot.updatedAtMs)) return false;
   if (snapshot.terminalRunning !== true) return false;
@@ -200,6 +225,7 @@ module.exports = {
   APPROVAL_PROMPT_PATTERNS,
   detectCodexTerminalState,
   hasFreshTerminalApproval,
+  hasFreshTerminalWorking,
   hasFreshTerminalNonApproval,
   parseTerminalTabs,
   probeTerminalTabs,

@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const {
   detectCodexTerminalState,
   hasFreshTerminalApproval,
+  hasFreshTerminalWorking,
   hasFreshTerminalNonApproval,
   parseTerminalTabs,
   probeTerminalTabs,
@@ -36,6 +37,18 @@ Would you like to run the following command?
   2. No, continue without running it
 Press enter to confirm or esc to cancel
 `), 'approval');
+});
+
+test('detects Codex active-turn status with a background terminal as working', () => {
+  assert.equal(detectCodexTerminalState(
+    'Planning dry-run before retrying writes (4m 50s • esc to interrupt) · 1 background terminal running · /ps to view · /st…'
+  ), 'working');
+});
+
+test('prefers an explicit active-turn status over old approval text in scrollback', () => {
+  assert.equal(detectCodexTerminalState(`${approvalPrompt}
+Planning dry-run before retrying writes (4m 50s • esc to interrupt) · 1 background terminal running`
+  ), 'working');
 });
 
 test('ignores old approval text when newer terminal output follows it', () => {
@@ -110,6 +123,16 @@ test('uses approval only for a matching TTY', () => {
   };
 
   assert.equal(hasFreshTerminalApproval(snapshot, ['/dev/ttys002'], 3000), false);
+});
+
+test('accepts only a fresh matching working terminal state', () => {
+  const snapshot = {
+    updatedAtMs: 4000,
+    states: { '/dev/ttys016': 'working' },
+  };
+  assert.equal(hasFreshTerminalWorking(snapshot, ['/dev/ttys016'], 4000), true);
+  assert.equal(hasFreshTerminalWorking(snapshot, ['/dev/ttys002'], 4000), false);
+  assert.equal(hasFreshTerminalWorking(snapshot, ['/dev/ttys016'], 4001), false);
 });
 
 test('detects a fresh sampled Codex terminal that is no longer showing approval', () => {

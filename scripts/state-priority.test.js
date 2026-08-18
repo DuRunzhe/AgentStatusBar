@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { resolveAgentState } = require('./state-priority');
+const { resolveAgentState, resolveCodexPendingKind } = require('./state-priority');
 
 test('transcript activity overrides stale native ready state', () => {
   assert.equal(resolveAgentState({
@@ -78,4 +78,27 @@ test('native OpenCode reply request overrides active process signals', () => {
     hasActiveChild: true,
     transcriptState: 'working',
   }), 'waiting_reply');
+});
+
+test('Codex active terminal work clears a stale approval pending kind', () => {
+  assert.equal(resolveCodexPendingKind({
+    pendingKind: 'approval',
+    hasActiveChild: true,
+    terminalWorking: true,
+  }), 'running');
+});
+
+test('Codex approval remains intact without explicit terminal work evidence', () => {
+  assert.equal(resolveCodexPendingKind({
+    pendingKind: 'approval',
+    hasActiveChild: true,
+    terminalWorking: false,
+  }), 'approval');
+});
+
+test('Codex terminal approval promotes an ordinary pending tool', () => {
+  assert.equal(resolveCodexPendingKind({
+    pendingKind: 'running',
+    terminalApproval: true,
+  }), 'approval');
 });
