@@ -11,11 +11,17 @@ function pidFromSessionCacheKey(key) {
   return Number.isInteger(pid) ? pid : null;
 }
 
-function prunePidCaches(pidSessionCache, pidCwdCache, livePids) {
+function prunePidCaches(pidSessionCache, pidCwdCache, livePids, additionalPidSessionCaches = []) {
   const live = livePids instanceof Set ? livePids : new Set(livePids || []);
   for (const key of pidSessionCache.keys()) {
     const pid = pidFromSessionCacheKey(key);
     if (pid == null || !live.has(pid)) pidSessionCache.delete(key);
+  }
+  for (const cache of additionalPidSessionCaches) {
+    for (const key of cache?.keys?.() || []) {
+      const pid = pidFromSessionCacheKey(key);
+      if (pid == null || !live.has(pid)) cache.delete(key);
+    }
   }
   for (const pid of pidCwdCache.keys()) {
     if (!live.has(Number(pid))) pidCwdCache.delete(pid);

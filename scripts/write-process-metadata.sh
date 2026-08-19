@@ -49,6 +49,38 @@ printf 'roots\t%s\n' "$(stat -f '%i' "$TRACKED_ROOTS_FILE" 2>/dev/null || echo 0
   }
 ' "$SNAPSHOT_FILE" > "$ROOTS_FILE" 2>/dev/null || true
 
+is_snapshot_descendant() {
+  local root_pid="$1" candidate_pid="$2"
+  /usr/bin/awk -v root="$root_pid" -v candidate="$candidate_pid" '
+    { parent[$1] = $2 }
+    END {
+      current = candidate
+      while (current != "" && current != 0 && !seen[current]++) {
+        if (current == root) exit 0
+        current = parent[current]
+      }
+      exit 1
+    }
+  ' "$SNAPSHOT_FILE" 2>/dev/null
+}
+
+codex_descendant_has_session() {
+  local root_pid="$1" source_file="$2" candidate_pid candidate_cwd file
+  while IFS=$'\t' read -r candidate_pid candidate_cwd; do
+    [ "$candidate_pid" = "$root_pid" ] && continue
+    [ -n "$candidate_cwd" ] && [ -d "$candidate_cwd" ] || continue
+    is_snapshot_descendant "$root_pid" "$candidate_pid" || continue
+    while IFS= read -r file; do
+      [ -f "$file" ] && return 0
+    done < <(/usr/bin/awk -F '\t' -v pid="$candidate_pid" '$1 == pid && $2 == "file" { print $3 }' "$source_file" 2>/dev/null)
+  done < <(/usr/bin/awk -F '\t' '$2 == "cwd" { print $1 "\t" $3 }' "$source_file" 2>/dev/null)
+  return 1
+}
+
+codex_descendant_cache_is_valid() {
+  codex_descendant_has_session "$1" "$OUTPUT_FILE"
+}
+
 cache_is_valid() {
   local pid="$1" name="$2" cwd file
   cwd=$(/usr/bin/awk -F '\t' -v pid="$pid" '$1 == pid && $2 == "cwd" { print $3; exit }' "$OUTPUT_FILE" 2>/dev/null)
@@ -59,7 +91,7 @@ cache_is_valid() {
   while IFS= read -r file; do
     [ -f "$file" ] && return 0
   done < <(/usr/bin/awk -F '\t' -v pid="$pid" '$1 == pid && $2 == "file" { print $3 }' "$OUTPUT_FILE" 2>/dev/null)
-  return 1
+  [ "$name" = "codex" ] && codex_descendant_cache_is_valid "$pid"
 }
 
 copy_cached_metadata() {
@@ -106,7 +138,8 @@ if [ -n "$PID_LIST" ]; then
     new_valid=false
     if [ -n "$new_cwd" ] && [ -d "$new_cwd" ]; then
       if [ "$name" = "opencode" ] || [ "$name" = "dsh" ] || [ "$name" = "deepseek-harness" ] ||
-          { [ -n "$new_file" ] && [ -f "$new_file" ]; }; then
+          { [ -n "$new_file" ] && [ -f "$new_file" ]; } ||
+          { [ "$name" = "codex" ] && codex_descendant_has_session "$pid" "$PROBE_OUTPUT"; }; then
         new_valid=true
       fi
     fi

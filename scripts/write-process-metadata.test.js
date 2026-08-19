@@ -91,3 +91,53 @@ printf '%s\\n' 'p42' 'fcwd' 'n${project}'
   assert.equal(result.status, 0, result.stderr);
   assert.equal(fs.existsSync(retry), true);
 });
+
+
+test('stops retrying when a Codex child owns the rollout for its parent session', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'process-metadata-codex-child-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const project = path.join(root, 'project');
+  const sessionDir = path.join(root, '.codex', 'sessions');
+  const session = path.join(sessionDir, 'rollout.jsonl');
+  fs.mkdirSync(project, { recursive: true });
+  fs.mkdirSync(sessionDir, { recursive: true });
+  fs.writeFileSync(session, '{}\n');
+
+  const snapshot = path.join(root, 'snapshot');
+  const output = path.join(root, 'metadata');
+  const state = path.join(root, 'state');
+  const retry = path.join(root, 'retry');
+  const roots = path.join(root, 'roots');
+  const log = path.join(root, 'lsof.log');
+  const fakeLsof = path.join(root, 'lsof.sh');
+  fs.writeFileSync(snapshot, [
+    '42 1 00:01 ttys001 node /opt/bin/codex',
+    '43 42 00:01 ttys001 /opt/bin/codex',
+  ].join('\n'));
+  fs.writeFileSync(roots, '42\tcodex\n43\tcodex\n');
+  fs.writeFileSync(fakeLsof, `#!/bin/bash
+printf '%s\\n' "$*" >> "${log}"
+printf '%s\\n' 'p42' 'fcwd' 'n${project}'
+printf '%s\\n' 'p43' 'fcwd' 'n${project}' 'f10' 'n${session}'
+`);
+  fs.chmodSync(fakeLsof, 0o755);
+  const run = now => spawnSync('/bin/bash', [script, snapshot, output, state, retry, roots], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      AGENT_STATUSBAR_LSOF_CMD: fakeLsof,
+      AGENT_STATUSBAR_NOW: String(now),
+      AGENT_STATUSBAR_METADATA_REFRESH_SEC: '30',
+    },
+  });
+
+  let result = run(1000);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(fs.existsSync(retry), false, 'the first probe accepts the child rollout for its parent session');
+
+  result = run(1002);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(fs.existsSync(retry), false);
+  assert.equal(fs.readFileSync(log, 'utf8').trim().split('\n').length, 1,
+    'the parent accepts its child rollout mapping without a repeated lsof probe');
+});

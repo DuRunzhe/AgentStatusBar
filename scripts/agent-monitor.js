@@ -40,6 +40,7 @@ const {
   pruneOpenCodeRuntimeCache,
 } = require('./opencode-state');
 const { getDeepSeekRuntimeForCwd } = require('./deepseek-state');
+const { selectCodexSessionFile } = require('./codex-session-selection');
 const {
   getClaudeModelInLines,
   getCodexModelInLines,
@@ -59,7 +60,6 @@ const {
   hasActiveDescendantProcesses,
   hasMatchingAgentAncestor,
   isCodexAppServerProcess,
-  isPrimaryCodexSessionHeader,
   parseProcessSnapshot,
 } = require('./process-state');
 
@@ -167,6 +167,7 @@ let lastProcessSnapshotMtime = 0;
 let processMetadataMtime = 0;
 let processMetadata = new Map();
 const PID_SESSION_CACHE = new Map();
+const CODEX_SESSION_CANDIDATE_CACHE = new Map();
 const PID_CWD_CACHE = new Map();
 const SESSION_ANALYSIS_CACHE = new Map();
 const WEB_URL_CACHE = new Map();
@@ -349,32 +350,20 @@ function getSessionFileForPid(pid, agentDef, processes = []) {
   }
 
   const cacheKey = `${agentDef.name}:${pid}`;
-  const cached = PID_SESSION_CACHE.get(cacheKey);
-  if (cached && fs.existsSync(cached)) return cached;
-
   try {
     const files = getMetadataFilesForPid(pid, agentDef, processes);
 
     if (agentDef.name === 'Codex') {
-      const rolloutFiles = files.filter(f =>
-        f.endsWith('.jsonl') && f.startsWith(agentDef.sessionDir + path.sep)
-      );
-      const primaryFiles = rolloutFiles.filter(file => {
-        try {
-          const fd = fs.openSync(file, 'r');
-          const buffer = Buffer.alloc(8192);
-          const bytesRead = fs.readSync(fd, buffer, 0, buffer.length, 0);
-          fs.closeSync(fd);
-          return isPrimaryCodexSessionHeader(buffer.toString('utf8', 0, bytesRead));
-        } catch {
-          return false;
-        }
+      return selectCodexSessionFile({
+        cache: CODEX_SESSION_CANDIDATE_CACHE,
+        cacheKey,
+        files,
+        sessionDir: agentDef.sessionDir,
       });
-      primaryFiles.sort((a, b) => getFileMtime(b) - getFileMtime(a));
-      const sessionFile = primaryFiles[0] || null;
-      if (sessionFile) PID_SESSION_CACHE.set(cacheKey, sessionFile);
-      return sessionFile;
     }
+
+    const cached = PID_SESSION_CACHE.get(cacheKey);
+    if (cached && fs.existsSync(cached)) return cached;
     if (agentDef.name === 'OpenCode') {
       const sessionFile = files.find(f =>
         f.includes(path.sep + 'storage' + path.sep) &&
@@ -798,7 +787,7 @@ function poll() {
   const liveAgentPids = new Set(agents.flatMap(agent =>
     agent.instances.flatMap(instance => instance.pids)
   ));
-  prunePidCaches(PID_SESSION_CACHE, PID_CWD_CACHE, liveAgentPids);
+  prunePidCaches(PID_SESSION_CACHE, PID_CWD_CACHE, liveAgentPids, [CODEX_SESSION_CANDIDATE_CACHE]);
   pruneSessionAnalysisCache(SESSION_ANALYSIS_CACHE, cacheUsage.sessionFiles, now);
   pruneOpenCodeRuntimeCache(cacheUsage.openCodeCwds, now);
 
