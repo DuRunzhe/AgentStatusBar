@@ -285,6 +285,18 @@ function getClaudeReplyRequestInLines(lines, initialState = false) {
   return waitingForReply;
 }
 
+
+function getCodexApprovalPolicyInLines(lines, initialPolicy = null) {
+  let policy = initialPolicy;
+  for (const line of lines) {
+    const event = parseEvent(line);
+    if (event.type !== 'turn_context') continue;
+    const value = event.payload?.approval_policy;
+    if (typeof value === 'string' && value) policy = value;
+  }
+  return policy;
+}
+
 function getCodexContextUsageInLines(lines) {
   for (let i = lines.length - 1; i >= 0; i--) {
     const event = parseEvent(lines[i]);
@@ -309,6 +321,7 @@ function getCodexContextUsageInLines(lines) {
 module.exports = {
   getClaudeReplyRequestInLines,
   getClaudeTaskStateInLines,
+  getCodexApprovalPolicyInLines,
   getCodexContextUsageInLines,
   getCodexTaskStateInLines,
   getPendingToolUseKindInLines,

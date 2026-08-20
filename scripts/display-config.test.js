@@ -9,6 +9,7 @@ const {
   DEFAULT_DISPLAY_CONFIG,
   normalizeDisplayConfig,
   readDisplayConfig,
+  setAutoConfirmWaitingNotificationsEnabled,
   setBrowserTabReuseEnabled,
   setNotificationsEnabled,
   toggleDisplayConfig,
@@ -68,4 +69,16 @@ test('browser tab reuse is disabled by default and persists independently', t =>
   assert.equal(setBrowserTabReuseEnabled(true, configFile).browserTabReuse, true);
   assert.equal(readDisplayConfig(configFile).model, true);
   assert.equal(setBrowserTabReuseEnabled(false, configFile).browserTabReuse, false);
+});
+
+
+test('auto-confirmation waiting alerts are enabled by default and persist independently', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-statusbar-auto-confirm-config-test-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const configFile = path.join(root, 'config.json');
+
+  assert.equal(readDisplayConfig(configFile).showWaitingNotificationsInAutoConfirmMode, true);
+  assert.equal(setAutoConfirmWaitingNotificationsEnabled(false, configFile).showWaitingNotificationsInAutoConfirmMode, false);
+  assert.equal(readDisplayConfig(configFile).notifications, false);
+  assert.equal(setAutoConfirmWaitingNotificationsEnabled(true, configFile).showWaitingNotificationsInAutoConfirmMode, true);
 });

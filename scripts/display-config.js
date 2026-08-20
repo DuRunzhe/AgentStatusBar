@@ -17,6 +17,7 @@ const DEFAULT_DISPLAY_CONFIG = Object.freeze({
   ...Object.fromEntries(CONFIG_KEYS.map(key => [key, true])),
   browserTabReuse: false,
   notifications: false,
+  showWaitingNotificationsInAutoConfirmMode: true,
 });
 
 const DEFAULT_CONFIG_FILE = path.join(
@@ -33,6 +34,9 @@ function normalizeDisplayConfig(value) {
     if (typeof value[key] === 'boolean') config[key] = value[key];
   }
   if (typeof value.notifications === 'boolean') config.notifications = value.notifications;
+  if (typeof value.showWaitingNotificationsInAutoConfirmMode === 'boolean') {
+    config.showWaitingNotificationsInAutoConfirmMode = value.showWaitingNotificationsInAutoConfirmMode;
+  }
   if (typeof value.browserTabReuse === 'boolean') config.browserTabReuse = value.browserTabReuse;
   return config;
 }
@@ -68,6 +72,12 @@ function setNotificationsEnabled(enabled, configFile = DEFAULT_CONFIG_FILE) {
   return writeDisplayConfig(config, configFile);
 }
 
+function setAutoConfirmWaitingNotificationsEnabled(enabled, configFile = DEFAULT_CONFIG_FILE) {
+  const config = readDisplayConfig(configFile);
+  config.showWaitingNotificationsInAutoConfirmMode = enabled === true;
+  return writeDisplayConfig(config, configFile);
+}
+
 function setBrowserTabReuseEnabled(enabled, configFile = DEFAULT_CONFIG_FILE) {
   const config = readDisplayConfig(configFile);
   config.browserTabReuse = enabled === true;
@@ -90,6 +100,7 @@ module.exports = {
   DEFAULT_DISPLAY_CONFIG,
   normalizeDisplayConfig,
   readDisplayConfig,
+  setAutoConfirmWaitingNotificationsEnabled,
   setBrowserTabReuseEnabled,
   setNotificationsEnabled,
   toggleDisplayConfig,

@@ -256,3 +256,35 @@ test('keeps both waiting animation frames bold with color-only animation', () =>
   assert.equal(frame1Config.weight, 'bold');
   assert.notDeepEqual(frame0Config.colors, frame1Config.colors);
 });
+
+
+test('renders auto-confirmation notifications as a direct checked notification setting', () => {
+  const enabled = render({
+    summary: '🟢 1 ready',
+    display_config: { showWaitingNotificationsInAutoConfirmMode: true },
+    ui: {
+      settings: 'Settings',
+      notifications: 'Notifications',
+      enableNotifications: 'Enable notifications',
+      enableAutoConfirmWaitingNotifications: 'Notify in auto-confirmation mode',
+      statusUnknown: 'Unknown',
+    },
+    agents: [],
+  });
+  const disabled = render({
+    summary: '🟢 1 ready',
+    display_config: { showWaitingNotificationsInAutoConfirmMode: false },
+    ui: {
+      settings: 'Settings',
+      notifications: 'Notifications',
+      enableNotifications: 'Enable notifications',
+      disableAutoConfirmWaitingNotifications: 'Do not notify in auto-confirmation mode',
+      statusUnknown: 'Unknown',
+    },
+    agents: [],
+  });
+
+  assert.match(enabled, /----Notify in auto-confirmation mode .*param0=\/repo\/notification-settings\.js param1=toggle-auto-confirm-waiting.*checked=true/);
+  assert.match(disabled, /----Do not notify in auto-confirmation mode .*param0=\/repo\/notification-settings\.js param1=toggle-auto-confirm-waiting/);
+  assert.doesNotMatch(disabled, /Do not notify in auto-confirmation mode.*checked=true/);
+});

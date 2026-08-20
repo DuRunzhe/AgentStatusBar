@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const {
   getClaudeReplyRequestInLines,
   getClaudeTaskStateInLines,
+  getCodexApprovalPolicyInLines,
   getCodexContextUsageInLines,
   getCodexTaskStateInLines,
   getPendingToolUseKindInLines,
@@ -312,4 +313,14 @@ test('completed user input request is not pending', () => {
     { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'question-1' }] } },
   ]);
   assert.equal(getPendingToolUseKindInLines(transcript), 'none');
+});
+
+test('reads the latest Codex approval policy from turn context runtime metadata', () => {
+  assert.equal(getCodexApprovalPolicyInLines([
+    JSON.stringify({ type: 'turn_context', payload: { approval_policy: 'on-request' } }),
+    JSON.stringify({ type: 'turn_context', payload: { approval_policy: 'never' } }),
+  ]), 'never');
+  assert.equal(getCodexApprovalPolicyInLines([
+    JSON.stringify({ type: 'event_msg', payload: { type: 'task_started' } }),
+  ], 'on-request'), 'on-request');
 });

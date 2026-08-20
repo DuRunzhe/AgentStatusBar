@@ -19,6 +19,7 @@ const { DEFAULT_LOCALE, getMessages, getUiStrings } = require('./i18n');
 const { advanceWaitingNotification } = require('./notification-state');
 const { sendNativeNotification } = require('./notification-delivery');
 const { readDisplayConfig } = require('./display-config');
+const { isAutomaticConfirmationMode, shouldNotifyForInstance } = require('./approval-mode');
 const { acquireProcessLock } = require('./process-lock');
 const { buildStatusSummary } = require('./status-summary');
 const {
@@ -49,6 +50,7 @@ const {
 const {
   getClaudeReplyRequestInLines,
   getClaudeTaskStateInLines,
+  getCodexApprovalPolicyInLines,
   getCodexContextUsageInLines,
   getCodexTaskStateInLines,
   getPendingToolUseKindInLines,
@@ -542,6 +544,9 @@ function buildSessionAnalysis(events, agentName, previous = null, appendedEvents
     replyRequested: agentName === 'Claude'
       ? getClaudeReplyRequestInLines(appendedEvents, previous?.replyRequested || false)
       : false,
+    approvalPolicy: agentName === 'Codex'
+      ? getCodexApprovalPolicyInLines(appendedEvents, previous?.approvalPolicy || null)
+      : null,
     contextUsage: agentName === 'Codex'
       ? getCodexContextUsageInLines(appendedEvents) || previous?.contextUsage || null
       : null,
@@ -710,6 +715,7 @@ function getInstances(
         sessionAnalysis = { ...sessionAnalysis, pendingKind };
       }
     }
+    const automaticConfirmationMode = isAutomaticConfirmationMode(agentDef.name, sessionAnalysis);
     const status = determineState(
       group.pids,
       deepSeekRuntime?.lastActivityMs || mtime,
@@ -751,6 +757,7 @@ function getInstances(
       label: projectLabel,
       status_label: status.label,
       pids: group.pids,
+      automatic_confirmation_mode: automaticConfirmationMode,
       uptime_sec: pidAge,
       last_activity_ms_ago: group.pids.length > 0 && lastActivityMs > 0
         ? (now - lastActivityMs)
@@ -853,7 +860,7 @@ function poll() {
     for (const inst of agent.instances) {
       const key = getInstanceTrackerKey(agent.name, inst);
       currentInstanceKeys.add(key);
-      if (appConfig.notifications !== true) {
+      if (appConfig.notifications !== true || !shouldNotifyForInstance(inst, appConfig)) {
         delete INSTANCE_TRACKER[key];
         continue;
       }
