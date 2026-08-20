@@ -6,7 +6,9 @@
  * executable name or from an agent merely supporting an automatic mode.
  */
 function isAutomaticConfirmationMode(agentName, sessionAnalysis) {
-  return agentName === 'Codex' && sessionAnalysis?.approvalPolicy === 'never';
+  return agentName === 'Codex'
+    && (sessionAnalysis?.approvalPolicy === 'never'
+      || sessionAnalysis?.approvalsReviewer === 'auto_review');
 }
 
 function shouldNotifyForInstance(instance, config) {

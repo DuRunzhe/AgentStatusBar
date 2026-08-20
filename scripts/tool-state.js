@@ -286,6 +286,40 @@ function getClaudeReplyRequestInLines(lines, initialState = false) {
 }
 
 
+function getCodexReplyRequestInLines(lines, initialState = false) {
+  let waitingForReply = initialState;
+  for (const line of lines) {
+    const event = parseEvent(line);
+    const payload = event.payload || {};
+
+    // A new user turn clears a previous final-question wait. Codex persists it
+    // both as a response item and as an item_completed event depending on the
+    // client/runtime path, so recognize either representation.
+    if ((event.type === 'response_item' && payload.type === 'message' && payload.role === 'user')
+        || (event.type === 'event_msg' && payload.type === 'item_completed'
+          && payload.item?.type === 'UserMessage')) {
+      waitingForReply = false;
+      continue;
+    }
+
+    if (event.type === 'event_msg' && payload.type === 'task_complete') {
+      waitingForReply = textEndsWithQuestion(payload.last_agent_message);
+    }
+  }
+  return waitingForReply;
+}
+
+function getCodexApprovalsReviewerInLines(lines, initialReviewer = null) {
+  let reviewer = initialReviewer;
+  for (const line of lines) {
+    const event = parseEvent(line);
+    if (event.type !== 'turn_context') continue;
+    const value = event.payload?.approvals_reviewer;
+    if (typeof value === 'string' && value) reviewer = value;
+  }
+  return reviewer;
+}
+
 function getCodexApprovalPolicyInLines(lines, initialPolicy = null) {
   let policy = initialPolicy;
   for (const line of lines) {
@@ -322,6 +356,8 @@ module.exports = {
   getClaudeReplyRequestInLines,
   getClaudeTaskStateInLines,
   getCodexApprovalPolicyInLines,
+  getCodexApprovalsReviewerInLines,
+  getCodexReplyRequestInLines,
   getCodexContextUsageInLines,
   getCodexTaskStateInLines,
   getPendingToolUseKindInLines,

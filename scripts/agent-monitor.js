@@ -51,6 +51,8 @@ const {
   getClaudeReplyRequestInLines,
   getClaudeTaskStateInLines,
   getCodexApprovalPolicyInLines,
+  getCodexApprovalsReviewerInLines,
+  getCodexReplyRequestInLines,
   getCodexContextUsageInLines,
   getCodexTaskStateInLines,
   getPendingToolUseKindInLines,
@@ -543,9 +545,14 @@ function buildSessionAnalysis(events, agentName, previous = null, appendedEvents
           : null),
     replyRequested: agentName === 'Claude'
       ? getClaudeReplyRequestInLines(appendedEvents, previous?.replyRequested || false)
-      : false,
+      : (agentName === 'Codex'
+          ? getCodexReplyRequestInLines(appendedEvents, previous?.replyRequested || false)
+          : false),
     approvalPolicy: agentName === 'Codex'
       ? getCodexApprovalPolicyInLines(appendedEvents, previous?.approvalPolicy || null)
+      : null,
+    approvalsReviewer: agentName === 'Codex'
+      ? getCodexApprovalsReviewerInLines(appendedEvents, previous?.approvalsReviewer || null)
       : null,
     contextUsage: agentName === 'Codex'
       ? getCodexContextUsageInLines(appendedEvents) || previous?.contextUsage || null

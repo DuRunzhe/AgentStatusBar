@@ -6,6 +6,8 @@ const {
   getClaudeReplyRequestInLines,
   getClaudeTaskStateInLines,
   getCodexApprovalPolicyInLines,
+  getCodexApprovalsReviewerInLines,
+  getCodexReplyRequestInLines,
   getCodexContextUsageInLines,
   getCodexTaskStateInLines,
   getPendingToolUseKindInLines,
@@ -323,4 +325,41 @@ test('reads the latest Codex approval policy from turn context runtime metadata'
   assert.equal(getCodexApprovalPolicyInLines([
     JSON.stringify({ type: 'event_msg', payload: { type: 'task_started' } }),
   ], 'on-request'), 'on-request');
+});
+
+test('reads the latest Codex approvals reviewer from turn context runtime metadata', () => {
+  assert.equal(getCodexApprovalsReviewerInLines([
+    JSON.stringify({ type: 'turn_context', payload: { approvals_reviewer: 'user' } }),
+    JSON.stringify({ type: 'turn_context', payload: { approvals_reviewer: 'auto_review' } }),
+  ]), 'auto_review');
+  assert.equal(getCodexApprovalsReviewerInLines([
+    JSON.stringify({ type: 'event_msg', payload: { type: 'task_started' } }),
+  ], 'user'), 'user');
+});
+
+
+test('detects a Codex final task-complete question as waiting for a reply', () => {
+  assert.equal(getCodexReplyRequestInLines(lines([
+    { type: 'event_msg', payload: {
+      type: 'task_complete',
+      last_agent_message: '是否确认继续新增这两个接口？',
+    } },
+  ])), true);
+  assert.equal(getCodexReplyRequestInLines(lines([
+    { type: 'event_msg', payload: {
+      type: 'task_complete',
+      last_agent_message: '已完成。',
+    } },
+  ])), false);
+});
+
+test('clears a Codex final-question wait when the user starts a new turn', () => {
+  assert.equal(getCodexReplyRequestInLines(lines([
+    { type: 'event_msg', payload: {
+      type: 'task_complete', last_agent_message: 'Continue?'
+    } },
+    { type: 'event_msg', payload: {
+      type: 'item_completed', item: { type: 'UserMessage' }
+    } },
+  ])), false);
 });

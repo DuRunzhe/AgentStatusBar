@@ -7,9 +7,14 @@ const {
   shouldNotifyForInstance,
 } = require('./approval-mode');
 
-test('recognizes only an explicit Codex never-approval policy as automatic confirmation', () => {
+test('recognizes explicit Codex automatic approval modes from runtime metadata', () => {
   assert.equal(isAutomaticConfirmationMode('Codex', { approvalPolicy: 'never' }), true);
-  assert.equal(isAutomaticConfirmationMode('Codex', { approvalPolicy: 'on-request' }), false);
+  assert.equal(isAutomaticConfirmationMode('Codex', {
+    approvalPolicy: 'on-request', approvalsReviewer: 'auto_review',
+  }), true);
+  assert.equal(isAutomaticConfirmationMode('Codex', {
+    approvalPolicy: 'on-request', approvalsReviewer: 'user',
+  }), false);
   assert.equal(isAutomaticConfirmationMode('Claude', { approvalPolicy: 'never' }), false);
   assert.equal(isAutomaticConfirmationMode('Codex', null), false);
 });
