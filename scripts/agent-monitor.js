@@ -20,6 +20,7 @@ const { advanceWaitingNotification } = require('./notification-state');
 const { sendNativeNotification } = require('./notification-delivery');
 const { readDisplayConfig } = require('./display-config');
 const { isAutomaticConfirmationMode, shouldNotifyForInstance } = require('./approval-mode');
+const { readLatestCodexTurnContext } = require('./codex-runtime-metadata');
 const { acquireProcessLock } = require('./process-lock');
 const { buildStatusSummary } = require('./status-summary');
 const {
@@ -626,9 +627,23 @@ function analyzeSessionFile(sessionFile, agentName) {
       appendedEvents = events;
     }
 
+    let previousAnalysis = cached?.analysis || null;
+    if (!cached && agentName === 'Codex') {
+      const tailHasApprovalPolicy = getCodexApprovalPolicyInLines(events) != null;
+      const tailHasApprovalsReviewer = getCodexApprovalsReviewerInLines(events) != null;
+      if (!tailHasApprovalPolicy || !tailHasApprovalsReviewer) {
+        const turnContext = readLatestCodexTurnContext(sessionFile);
+        previousAnalysis = {
+          approvalPolicy: turnContext?.approval_policy || null,
+          approvalsReviewer: turnContext?.approvals_reviewer || null,
+          model: turnContext?.model || null,
+        };
+      }
+    }
+
     const analysis = appendedEvents.length === 0
-      ? cached.analysis
-      : buildSessionAnalysis(events, agentName, cached?.analysis || null, appendedEvents);
+      ? previousAnalysis
+      : buildSessionAnalysis(events, agentName, previousAnalysis, appendedEvents);
     SESSION_ANALYSIS_CACHE.set(sessionFile, {
       mtimeMs: stat.mtimeMs,
       size: stat.size,
