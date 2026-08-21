@@ -2,7 +2,7 @@
 /**
  * agent-monitor.js — AI Coding Agent 状态监控守护进程
  *
- * 检测 Claude Code / Codex CLI / OpenCode 的运行状态，
+ * 检测 Claude Code / Codex CLI / ChatGPT Codex / OpenCode 的运行状态，
  * 支持每个 agent 的多个会话（实例）独立追踪。
  * 写入 /tmp/agent-status.json 供 SwiftBar 插件显示。
  * 进入需要人工介入的状态时自动发送 macOS 原生通知。
@@ -41,7 +41,10 @@ const {
   pruneOpenCodeRuntimeCache,
 } = require('./opencode-state');
 const { getDeepSeekRuntimeForCwd } = require('./deepseek-state');
-const { selectCodexSessionFile } = require('./codex-session-selection');
+const {
+  selectCodexSessionFile,
+  selectCodexSessions,
+} = require('./codex-session-selection');
 const {
   getClaudeModelInLines,
   getCodexModelInLines,
@@ -63,6 +66,7 @@ const {
   getMatchedAgentProcessName,
   hasActiveDescendantProcesses,
   hasMatchingAgentAncestor,
+  isChatGPTCodexAppServerProcess,
   isCodexAppServerProcess,
   parseProcessSnapshot,
 } = require('./process-state');
@@ -111,6 +115,14 @@ const AGENTS = [
   {
     name: 'Codex',
     process: 'codex',
+    kind: 'codex-cli',
+    sessionDir: path.join(process.env.HOME, '.codex', 'sessions'),
+    sessionGlob: '**/rollout-*.jsonl',
+  },
+  {
+    name: 'ChatGPT',
+    process: 'codex',
+    kind: 'codex-desktop',
     sessionDir: path.join(process.env.HOME, '.codex', 'sessions'),
     sessionGlob: '**/rollout-*.jsonl',
   },
@@ -162,6 +174,7 @@ function sendNotification(agentName, instance, reminderStage, appConfig) {
     message: msg,
     pid: instance.pids?.[0],
     openUrl: instance.open_url,
+    codexThreadId: instance.codex_thread_id,
     reuseTabs: appConfig?.browserTabReuse === true,
   });
 }
@@ -250,7 +263,15 @@ function findProcess(agentDef, processes) {
   const pids = processes
     .filter(processInfo => getMatchedAgentProcessName(processInfo.command, names))
     .filter(processInfo => !hasMatchingAgentAncestor(processInfo, processes, names))
-    .filter(processInfo => agentDef.name !== 'Codex' || !isCodexAppServerProcess(processInfo.command))
+    .filter(processInfo => {
+      if (agentDef.kind === 'codex-desktop') {
+        return isChatGPTCodexAppServerProcess(processInfo.command);
+      }
+      if (agentDef.kind === 'codex-cli') {
+        return !isCodexAppServerProcess(processInfo.command);
+      }
+      return true;
+    })
     .map(processInfo => processInfo.pid)
     .filter(isPidRunning);
   return pids.length > 0 ? pids : null;
@@ -348,37 +369,52 @@ function getMetadataFilesForPid(pid, agentDef, processes) {
   return metadataPids.flatMap(metadataPid => processMetadata.get(metadataPid)?.files || []);
 }
 
-function getSessionFileForPid(pid, agentDef, processes = []) {
+function getSessionRefsForPid(pid, agentDef, processes = []) {
   if (agentDef.name === 'Claude') {
-    return getClaudeRuntimeForPid(pid)?.transcript_path || null;
+    const sessionFile = getClaudeRuntimeForPid(pid)?.transcript_path || null;
+    return sessionFile ? [{ sessionFile, metadata: null }] : [];
   }
 
   const cacheKey = `${agentDef.name}:${pid}`;
   try {
     const files = getMetadataFilesForPid(pid, agentDef, processes);
 
-    if (agentDef.name === 'Codex') {
-      return selectCodexSessionFile({
+    if (agentDef.kind === 'codex-desktop') {
+      const sessions = selectCodexSessions({
         cache: CODEX_SESSION_CANDIDATE_CACHE,
         cacheKey,
         files,
         sessionDir: agentDef.sessionDir,
       });
+      return sessions.map(session => ({
+        sessionFile: session.file,
+        metadata: session.metadata,
+      }));
+    }
+
+    if (agentDef.kind === 'codex-cli') {
+      const sessionFile = selectCodexSessionFile({
+        cache: CODEX_SESSION_CANDIDATE_CACHE,
+        cacheKey,
+        files,
+        sessionDir: agentDef.sessionDir,
+      });
+      return sessionFile ? [{ sessionFile, metadata: null }] : [];
     }
 
     const cached = PID_SESSION_CACHE.get(cacheKey);
-    if (cached && fs.existsSync(cached)) return cached;
+    if (cached && fs.existsSync(cached)) return [{ sessionFile: cached, metadata: null }];
     if (agentDef.name === 'OpenCode') {
       const sessionFile = files.find(f =>
         f.includes(path.sep + 'storage' + path.sep) &&
         f.includes(path.sep + 'opencode' + path.sep)
       ) || null;
       if (sessionFile) PID_SESSION_CACHE.set(cacheKey, sessionFile);
-      return sessionFile;
+      return sessionFile ? [{ sessionFile, metadata: null }] : [];
     }
-    return null;
+    return [];
   } catch {
-    return null;
+    return [];
   }
 }
 
@@ -643,20 +679,49 @@ function getInstances(
     }];
   }
 
-  // 用 lsof 将 PID 分组到 session 文件
+  // 用 lsof 将 PID 分组到 session 文件。ChatGPT 的单个 app-server
+  // 可以同时承载多个 Codex thread，因此一个 PID 可能产生多个实例。
   const groups = {};
   for (const pid of pids) {
-    const sessionFile = getSessionFileForPid(pid, agentDef, processes);
-    const key = sessionFile || `__pid_${pid}`;
-    if (!groups[key]) groups[key] = { sessionFile, pids: [] };
-    groups[key].pids.push(pid);
+    const sessionRefs = getSessionRefsForPid(pid, agentDef, processes);
+    if (sessionRefs.length === 0) {
+      if (agentDef.kind === 'codex-desktop') continue;
+      const key = `__pid_${pid}`;
+      groups[key] = { sessionFile: null, sessionMetadata: null, pids: [pid] };
+      continue;
+    }
+    for (const { sessionFile, metadata } of sessionRefs) {
+      const key = sessionFile || `__pid_${pid}`;
+      if (!groups[key]) groups[key] = { sessionFile, sessionMetadata: metadata, pids: [] };
+      groups[key].pids.push(pid);
+    }
+  }
+
+  if (Object.keys(groups).length === 0) {
+    const status = determineState(null, 0, now, null, agentDef.name, null, processes);
+    return [{
+      ...status,
+      label: agentDef.name,
+      status_label: status.label,
+      pids: [],
+      uptime_sec: 0,
+      last_activity_ms_ago: null,
+      model: null,
+      context_usage: null,
+    }];
   }
 
   // 合并同文件的不同 key（去重 PIDs）
   const merged = {};
   for (const [key, g] of Object.entries(groups)) {
     const mergeKey = g.sessionFile || key;
-    if (!merged[mergeKey]) merged[mergeKey] = { sessionFile: g.sessionFile, pids: [] };
+    if (!merged[mergeKey]) {
+      merged[mergeKey] = {
+        sessionFile: g.sessionFile,
+        sessionMetadata: g.sessionMetadata,
+        pids: [],
+      };
+    }
     merged[mergeKey].pids.push(...g.pids);
   }
 
@@ -681,8 +746,10 @@ function getInstances(
     const claudeRuntime = agentDef.name === 'Claude' && firstPid
       ? getClaudeRuntimeForPid(firstPid)
       : null;
-    const cwd = claudeRuntime?.cwd || (firstPid ? getProcessCwd(firstPid) : null);
-    if (cwd && keys.length > 1) {
+    const cwd = claudeRuntime?.cwd
+      || group.sessionMetadata?.cwd
+      || (firstPid ? getProcessCwd(firstPid) : null);
+    if (cwd && (keys.length > 1 || agentDef.kind === 'codex-desktop')) {
       const projectName = path.basename(cwd);
       projectLabel = `${agentDef.name} (${projectName})`;
     } else if (keys.length > 1) {
@@ -700,18 +767,21 @@ function getInstances(
     const nativeState = agentDef.name === 'Claude'
       ? getClaudeNativeState(claudeRuntime)
       : openCodeRuntime?.state || deepSeekRuntime?.state || null;
-    let sessionAnalysis = agentDef.name === 'Claude' || agentDef.name === 'Codex'
-      ? analyzeSessionFile(group.sessionFile, agentDef.name)
+    const analysisAgentName = agentDef.kind?.startsWith('codex') ? 'Codex' : agentDef.name;
+    let sessionAnalysis = analysisAgentName === 'Claude' || analysisAgentName === 'Codex'
+      ? analyzeSessionFile(group.sessionFile, analysisAgentName)
       : null;
     const groupTtys = group.pids
       .map(pid => processes.find(processInfo => processInfo.pid === pid)?.tty)
       .filter(Boolean);
-    const hasActiveChild = group.pids.some(pid => hasActiveChildProcesses(pid, agentDef.name, processes));
-    if (agentDef.name === 'Codex'
+    const hasActiveChild = agentDef.kind === 'codex-desktop'
+      ? false
+      : group.pids.some(pid => hasActiveChildProcesses(pid, analysisAgentName, processes));
+    if (agentDef.kind === 'codex-cli'
       && (sessionAnalysis?.pendingKind === 'running' || sessionAnalysis?.pendingKind === 'approval')) {
       for (const tty of groupTtys) terminalProbeTtys?.add(tty);
     }
-    if (agentDef.name === 'Codex' && sessionAnalysis) {
+    if (agentDef.kind?.startsWith('codex') && sessionAnalysis) {
       const pendingKind = resolveCodexPendingKind({
         pendingKind: sessionAnalysis.pendingKind,
         hasActiveChild,
@@ -722,23 +792,27 @@ function getInstances(
         sessionAnalysis = { ...sessionAnalysis, pendingKind };
       }
     }
-    const automaticConfirmationMode = isAutomaticConfirmationMode(agentDef.name, sessionAnalysis);
+    const automaticConfirmationMode = isAutomaticConfirmationMode(analysisAgentName, sessionAnalysis);
     const status = determineState(
       group.pids,
       deepSeekRuntime?.lastActivityMs || mtime,
       now,
       deepSeekRuntime?.sessionFile || group.sessionFile,
-      agentDef.name,
+      analysisAgentName,
       nativeState,
-      openCodeRuntime ? [] : processes,
+      openCodeRuntime || agentDef.kind === 'codex-desktop' ? [] : processes,
       sessionAnalysis
     );
     let contextUsage = null;
     let model = null;
     let openUrl = null;
-    if (agentDef.name === 'Codex' && group.sessionFile) {
+    let codexThreadId = null;
+    if (agentDef.kind?.startsWith('codex') && group.sessionFile) {
       contextUsage = sessionAnalysis?.contextUsage || null;
-      model = sessionAnalysis?.model || null;
+      model = sessionAnalysis?.model || group.sessionMetadata?.model || null;
+      if (agentDef.kind === 'codex-desktop') {
+        codexThreadId = group.sessionMetadata?.id || group.sessionMetadata?.sessionId || null;
+      }
     } else if (agentDef.name === 'Claude') {
       contextUsage = claudeRuntime?.context_usage || null;
       model = sessionAnalysis?.model
@@ -756,6 +830,10 @@ function getInstances(
       openUrl = getDeepSeekHarnessWebUrl(firstPid, agentDef, processes);
     }
     const runtimeActivityMs = openCodeRuntime?.lastActivityMs || deepSeekRuntime?.lastActivityMs || null;
+    const sessionStartedAtMs = Date.parse(group.sessionMetadata?.timestamp || '');
+    const uptimeSec = agentDef.kind === 'codex-desktop' && Number.isFinite(sessionStartedAtMs)
+      ? Math.min(pidAge, Math.max(0, Math.floor((now - sessionStartedAtMs) / 1000)))
+      : pidAge;
     const lastActivityMs = runtimeActivityMs >= processStartedAt
       ? runtimeActivityMs
       : mtime;
@@ -765,13 +843,14 @@ function getInstances(
       status_label: status.label,
       pids: group.pids,
       automatic_confirmation_mode: automaticConfirmationMode,
-      uptime_sec: pidAge,
+      uptime_sec: uptimeSec,
       last_activity_ms_ago: group.pids.length > 0 && lastActivityMs > 0
         ? (now - lastActivityMs)
         : null,
       model,
       context_usage: contextUsage,
       open_url: openUrl,
+      codex_thread_id: codexThreadId,
     };
   });
 }

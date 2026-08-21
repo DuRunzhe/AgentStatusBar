@@ -10,6 +10,7 @@ const {
   hasMatchingAgentAncestor,
   hasActiveDescendantProcesses,
   isCodexAppServerProcess,
+  isChatGPTCodexAppServerProcess,
   isIgnoredChildProcess,
   isPrimaryCodexSessionHeader,
   parseProcessSnapshot,
@@ -113,4 +114,16 @@ test('ignores wrapped agent child processes while still counting their task chil
 
   assert.equal(hasActiveDescendantProcesses(200, 'DeepSeek Harness', processes.slice(0, 2)), false);
   assert.equal(hasActiveDescendantProcesses(200, 'DeepSeek Harness', processes), true);
+});
+
+
+test('recognizes only the ChatGPT desktop Codex app-server', () => {
+  assert.equal(isChatGPTCodexAppServerProcess(
+    '/Applications/ChatGPT.app/Contents/Resources/codex -c features.code_mode_host=true app-server'
+  ), true);
+  assert.equal(isChatGPTCodexAppServerProcess(
+    '/Applications/Codex.app/Contents/Resources/codex app-server'
+  ), true);
+  assert.equal(isChatGPTCodexAppServerProcess('/opt/bin/codex app-server'), false);
+  assert.equal(isChatGPTCodexAppServerProcess('/opt/bin/codex'), false);
 });

@@ -35,6 +35,12 @@ function isCodexAppServerProcess(command) {
   return /(?:^|\s)app-server(?:\s|$)/.test(String(command || ''));
 }
 
+function isChatGPTCodexAppServerProcess(command) {
+  const value = String(command || '');
+  return isCodexAppServerProcess(value)
+    && /\/(?:ChatGPT|Codex)\.app\/Contents\/Resources\/codex(?:\s|$)/i.test(value);
+}
+
 function getAgentProcessNames(agentDef) {
   if (Array.isArray(agentDef?.processNames)) return agentDef.processNames;
   if (agentDef?.process) return [agentDef.process];
@@ -134,6 +140,7 @@ module.exports = {
   hasMatchingAgentAncestor,
   hasActiveDescendantProcesses,
   isAgentProcessName,
+  isChatGPTCodexAppServerProcess,
   isCodexAppServerProcess,
   isIgnoredChildProcess,
   isPrimaryCodexSessionHeader,

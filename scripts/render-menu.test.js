@@ -19,6 +19,7 @@ function render(data) {
     statusPath,
     '/repo/focus-agent-session.js',
     '/repo/focus-web-url.js',
+    '/repo/focus-codex-thread.js',
     '/opt/node',
     '/repo/restart-agent-monitor.sh',
     '/repo/display-config.js',
@@ -41,6 +42,7 @@ function renderCache(data, cacheKey = 'status-key') {
     statusPath,
     '/repo/focus-agent-session.js',
     '/repo/focus-web-url.js',
+    '/repo/focus-codex-thread.js',
     '/opt/node',
     '/repo/restart-agent-monitor.sh',
     '/repo/display-config.js',
@@ -303,4 +305,26 @@ test('renders enabled notification types as a multi-select submenu', () => {
   assert.match(disabled, /----Notification options \| sfimage=checklist disabled=true/);
   assert.doesNotMatch(disabled, /------Awaiting confirmation/);
   assert.match(disabled, /----Enable notifications .*param1=toggle/);
+});
+
+
+test('renders ChatGPT instances as exact desktop thread links', () => {
+  const output = render({
+    summary: '🔵 1 working',
+    display_config: {},
+    ui: { statusUnknown: 'Unknown' },
+    agents: [{
+      name: 'ChatGPT',
+      instances: [{
+        state: 'working',
+        label: 'ChatGPT (AgentStatusBar)',
+        status_label: 'Working',
+        pids: [44793],
+        codex_thread_id: '01a02389-7898-7f60-a1b8-799d9017fe52',
+      }],
+    }],
+  });
+
+  assert.match(output, /param0=\/repo\/focus-codex-thread\.js param1=01a02389-7898-7f60-a1b8-799d9017fe52 terminal=false/);
+  assert.doesNotMatch(output, /param1=44793 terminal=false/);
 });

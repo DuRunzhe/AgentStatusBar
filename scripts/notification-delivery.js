@@ -26,6 +26,12 @@ function buildFocusCommand(pid, nodePath, focusPath) {
   return `${shellQuote(nodePath)} ${shellQuote(focusPath)} ${pid}`;
 }
 
+function buildCodexFocusCommand(threadId, nodePath, focusCodexPath) {
+  const value = String(threadId || '').trim();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) throw new Error('Invalid Codex thread ID');
+  return `${shellQuote(nodePath)} ${shellQuote(focusCodexPath)} ${shellQuote(value)}`;
+}
+
 function buildWebFocusCommand(openUrl, nodePath, focusWebPath, reuseTabs = false) {
   const url = String(openUrl || '').trim();
   if (!url) throw new Error('Invalid web URL');
@@ -36,11 +42,14 @@ function buildWebFocusCommand(openUrl, nodePath, focusWebPath, reuseTabs = false
 function buildNotificationExecuteCommand({
   pid,
   openUrl,
+  codexThreadId,
   reuseTabs = false,
   nodePath,
   focusPath,
   focusWebPath,
+  focusCodexPath,
 }) {
+  if (codexThreadId) return buildCodexFocusCommand(codexThreadId, nodePath, focusCodexPath);
   if (openUrl) return buildWebFocusCommand(openUrl, nodePath, focusWebPath, reuseTabs);
   return buildFocusCommand(pid, nodePath, focusPath);
 }
@@ -51,10 +60,12 @@ function buildTerminalNotifierArgs({
   message,
   pid,
   openUrl,
+  codexThreadId,
   reuseTabs = false,
   nodePath,
   focusPath,
   focusWebPath,
+  focusCodexPath,
 }) {
   return [
     '-title', title,
@@ -64,10 +75,12 @@ function buildTerminalNotifierArgs({
     '-execute', buildNotificationExecuteCommand({
       pid,
       openUrl,
+      codexThreadId,
       reuseTabs,
       nodePath,
       focusPath,
       focusWebPath,
+      focusCodexPath,
     }),
   ];
 }
@@ -81,7 +94,7 @@ function buildAppleScript({ title, subtitle, message }) {
 }
 
 function sendNativeNotification(
-  { title = 'AgentStatusBar', subtitle, message, pid, openUrl, reuseTabs = false },
+  { title = 'AgentStatusBar', subtitle, message, pid, openUrl, codexThreadId, reuseTabs = false },
   {
     env = process.env,
     exists = fs.existsSync,
@@ -89,6 +102,7 @@ function sendNativeNotification(
     nodePath = process.execPath,
     focusPath = path.join(__dirname, 'focus-agent-session.js'),
     focusWebPath = path.join(__dirname, 'focus-web-url.js'),
+    focusCodexPath = path.join(__dirname, 'focus-codex-thread.js'),
   } = {}
 ) {
   const options = { encoding: 'utf8', timeout: 3000 };
@@ -104,7 +118,8 @@ function sendNativeNotification(
   const notifierPath = findTerminalNotifier(env, exists);
   const hasPidAction = Number.isInteger(pid) && pid > 0;
   const hasWebAction = typeof openUrl === 'string' && openUrl.trim();
-  if (!notifierPath || (!hasPidAction && !hasWebAction)) {
+  const hasCodexAction = typeof codexThreadId === 'string' && codexThreadId.trim();
+  if (!notifierPath || (!hasPidAction && !hasWebAction && !hasCodexAction)) {
     fallback();
     return 'osascript';
   }
@@ -115,10 +130,12 @@ function sendNativeNotification(
     message,
     pid,
     openUrl,
+    codexThreadId,
     reuseTabs,
     nodePath,
     focusPath,
     focusWebPath,
+    focusCodexPath,
   });
   run(notifierPath, args, options, error => {
     if (error) fallback();
@@ -128,6 +145,7 @@ function sendNativeNotification(
 
 module.exports = {
   buildAppleScript,
+  buildCodexFocusCommand,
   buildFocusCommand,
   buildNotificationExecuteCommand,
   buildTerminalNotifierArgs,

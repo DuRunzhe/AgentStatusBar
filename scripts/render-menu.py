@@ -3,6 +3,7 @@
 
 import json
 import os
+import re
 import sys
 import time
 from datetime import datetime
@@ -21,6 +22,13 @@ ANIMATED_SYMBOL = "smallcircle.fill.circle"
 
 def safe_text(value):
     return str(value or "").replace("\r", " ").replace("\n", " ").replace("|", "¦")
+
+
+def safe_thread_id(value):
+    text = str(value or "").strip()
+    if re.fullmatch(r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}", text):
+        return text.lower()
+    return ""
 
 
 def safe_url(value):
@@ -74,7 +82,7 @@ def animation_mode(data):
 
 def render_menu(data, paths, now=None, static_icon=False, icon_frame=None):
     now = time.time() if now is None else now
-    focus_path, focus_web_path, node_cmd, restart_path, display_path, notification_path, browser_tab_path, startup_path = paths
+    focus_path, focus_web_path, focus_codex_path, node_cmd, restart_path, display_path, notification_path, browser_tab_path, startup_path = paths
     ui = data.get("ui", {})
     lines = []
 
@@ -137,8 +145,11 @@ def render_menu(data, paths, now=None, static_icon=False, icon_frame=None):
             if state == "stopped":
                 line += " color=#8E8E93"
             elif pids and node_cmd:
+                codex_thread_id = safe_thread_id(instance.get("codex_thread_id"))
                 url = safe_url(instance.get("open_url"))
-                if url:
+                if codex_thread_id and focus_codex_path:
+                    line += f" bash={node_cmd} param0={focus_codex_path} param1={safe_text(codex_thread_id)} terminal=false"
+                elif url:
                     reuse_arg = " param2=reuse-tabs" if config.get("browserTabReuse") is True else ""
                     line += f" bash={node_cmd} param0={focus_web_path} param1={url}{reuse_arg} terminal=false"
                 else:
@@ -226,26 +237,26 @@ def write_menu_cache(data, paths, prefix, cache_key):
 
 
 def main(argv):
-    if len(argv) < 9:
+    if len(argv) < 10:
         raise SystemExit(
-            "usage: render-menu.py STATUS FOCUS FOCUS_WEB NODE RESTART DISPLAY NOTIFICATIONS BROWSER_TABS "
+            "usage: render-menu.py STATUS FOCUS FOCUS_WEB FOCUS_CODEX NODE RESTART DISPLAY NOTIFICATIONS BROWSER_TABS "
             "STARTUP [--static | --cache-prefix PREFIX --cache-key KEY]"
         )
     status_path = argv[0]
     with open(status_path, encoding="utf-8") as status_file:
         data = json.load(status_file)
-    options = argv[9:]
+    options = argv[10:]
     if "--cache-prefix" in options:
         prefix_index = options.index("--cache-prefix")
         key_index = options.index("--cache-key")
         write_menu_cache(
             data,
-            argv[1:9],
+            argv[1:10],
             options[prefix_index + 1],
             options[key_index + 1],
         )
         return
-    print(render_menu(data, argv[1:9], static_icon="--static" in options))
+    print(render_menu(data, argv[1:10], static_icon="--static" in options))
 
 
 if __name__ == "__main__":

@@ -30,3 +30,16 @@ test('falls back to the label when an instance has no live PID', () => {
     'Claude:label:Claude'
   );
 });
+
+
+test('uses the desktop Codex thread ID before the shared app-server PID', () => {
+  const first = getInstanceTrackerKey('ChatGPT', {
+    codex_thread_id: '11111111-1111-1111-1111-111111111111',
+    pids: [42],
+  });
+  const second = getInstanceTrackerKey('ChatGPT', {
+    codex_thread_id: '22222222-2222-2222-2222-222222222222',
+    pids: [42],
+  });
+  assert.notEqual(first, second);
+});

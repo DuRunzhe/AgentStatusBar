@@ -1,15 +1,16 @@
 # AgentStatusBar
 
-macOS 菜单栏里的 AI Coding Agent 状态监控器。通过 SwiftBar 汇总 Claude Code、Codex CLI 和 OpenCode 的运行状态、进程时长与上下文占用，并可点击菜单项跳回对应终端会话。
+macOS 菜单栏里的 AI Coding Agent 状态监控器。通过 SwiftBar 汇总 Claude Code、Codex CLI、ChatGPT 桌面版 Codex 和 OpenCode 的运行状态、进程时长与上下文占用，并可点击菜单项跳回对应终端或 ChatGPT Codex 会话。
 
 ## 显示效果
 <img width="1104" height="674" alt="image" src="https://github.com/user-attachments/assets/6f73cd65-4385-4ca7-98de-aa146894ca30" />
 
 ```text
-1个等待确认 · 1个等待回复 · 1个进行中 · 1个就绪
+1个等待确认 · 1个等待回复 · 2个进行中 · 1个就绪
 ├── 🟡 Claude (backend): 等待确认 (2h36m) · claude-sonnet-4-5 · 63.0% (126k/200k)
 ├── 🟡 Claude (docs): 等待回复 (48m) · claude-sonnet-4-5 · 31.5% (63k/200k)
 ├── 🔵 Codex (AgentStatusBar): 进行中 (1h36m) · gpt-5.6-sol · 44.6% (115k/258k)
+├── 🔵 ChatGPT (docs): 进行中 (18m) · gpt-5.6-sol · 27.1% (70k/258k)
 ├── 🟢 Codex (src): 就绪 (70h25m) · gpt-5.6-sol · 33.8% (87k/258k)
 └── [灰色圆点] OpenCode: 已停止
 ```
@@ -25,13 +26,13 @@ macOS 菜单栏里的 AI Coding Agent 状态监控器。通过 SwiftBar 汇总 C
 <img width="712" height="26" alt="image" src="https://github.com/user-attachments/assets/4030c2aa-09c8-4c19-9f30-50def8b035ec" />
 
 
-点击菜单栏图标展开详情。点击存活的 Agent 行可跳转到对应终端会话；已停止项不可点击。
+点击菜单栏图标展开详情。点击存活的 Agent 行可跳转到对应终端会话；ChatGPT 会通过 `codex://threads/<thread-id>` 精确打开桌面版中的对应会话；已停止项不可点击。
 
 ## 功能
 
 | 功能 | 说明 |
 |---|---|
-| 多 Agent / 多实例 | 同时监控 Claude Code、Codex CLI、OpenCode，并按项目区分多个会话 |
+| 多 Agent / 多实例 | 同时监控 Claude Code、Codex CLI、ChatGPT 桌面版 Codex、OpenCode，并按项目区分多个会话 |
 | 五态显示 | 等待确认、等待回复、进行中、就绪、已停止 |
 | 多语言 | 按 macOS 首选语言显示英语、简体中文或繁体中文；语言优先于地区，默认英语 |
 | 上下文占用 | Claude Code、Codex 和 OpenCode 显示百分比及 `已用/窗口` token 数 |
@@ -39,7 +40,7 @@ macOS 菜单栏里的 AI Coding Agent 状态监控器。通过 SwiftBar 汇总 C
 | 显示配置 | 在菜单中独立开关时长、模型、上下文占比、已用上下文和总上下文 |
 | 工具调用配对 | 按 tool ID 配对 `tool_use` 与 `tool_result`，避免并行调用和扫描窗口截断误判 |
 | 进程时长 | 显示 Agent 进程持续运行时间 |
-| 会话跳转 | Terminal.app / iTerm2 精确切换标签页，其他受支持终端降级为激活应用 |
+| 会话跳转 | Terminal.app / iTerm2 精确切换标签页；ChatGPT 精确打开对应桌面 thread；其他受支持终端降级为激活应用 |
 | DeepSeek Harness | 支持交互式 `dsh` / `deepseek-harness` CLI；Web 实例可点击打开本地 Harness 页面 |
 | 浏览器标签页复用 | 可在“设置 → 浏览器标签页”启用；复用已有 DeepSeek Harness 本地页面，避免 Chrome 每次新开标签页 |
 | 人工介入提醒 | 可在“设置 → 通知”启用；通知开启后可在“通知选项”多选等待确认、等待回复及自动确认模式下的等待确认提醒；每类提醒在进入状态时立即通知，持续 60 秒再次提醒，持续 3 分钟发送最后提醒 |
@@ -160,6 +161,7 @@ macOS 没有向普通脚本提供稳定的通知权限查询接口，因此开�
 会话跳转支持：
 
 - Terminal.app、iTerm2：按 PID 对应的 TTY 精确切换到窗口/标签页。
+- ChatGPT 桌面版 Codex：按 rollout 中的 thread ID 打开 `codex://threads/<thread-id>`，精确切换到对应桌面会话。
 - DeepSeek Harness Web 实例：点击本地 `http://127.0.0.1:<port>/` 页面；端口来自实际进程，不假设固定端口。
 - 浏览器标签页复用开启时：通过 JXA 读取 Google Chrome、Microsoft Edge、Brave Browser 或 Safari 的现有标签页 URL，匹配同一个本地 Harness 地址后切换到已有标签页；未找到匹配标签页时才打开新页面。
 - Warp、Visual Studio Code、Cursor、Windsurf、kitty、Alacritty：无法精确定位标签页时激活对应应用。
@@ -170,6 +172,7 @@ macOS 没有向普通脚本提供稳定的通知权限查询接口，因此开�
 
 - **Claude Code**：`~/.claude/sessions/<PID>.json` 提供 PID/session/cwd 配对及原生 `busy` / `idle` / `waiting` 状态；Claude statusline 和 transcript 提供模型、会话路径、上下文窗口及使用率。
 - **Codex CLI**：读取 `~/.codex/sessions/**/rollout-*.jsonl`，并在普通未完成工具调用无法区分执行与确认时，按 PID 对应 TTY 核对 Terminal.app 当前可见区域底部的完整确认界面。
+- **ChatGPT 桌面版 Codex**：识别 ChatGPT/Codex 应用内的 `codex app-server`，读取其直接打开的 primary rollout；单个 app-server 同时承载多个 thread 时按 rollout 分成多个实例。会话的 cwd、thread ID、模型、上下文和任务状态均来自相同的 Codex rollout 格式。
 - **OpenCode**：检测 `opencode` 进程，并优先从 `~/.local/share/opencode/opencode.db` 的当前目录最新会话读取状态、provider/model 和已用 token；上下文窗口来自 `~/.cache/opencode/models.json`，旧版 `storage/*` 保留为模型读取回退。
 - **DeepSeek Harness**：检测交互式 `dsh` / `deepseek-harness` CLI 进程，按 cwd 区分多个 `dsh chat` 会话，并通过实际后代进程判断是否正在执行本地任务；MCP server 和 Claude Skill 形态由宿主客户端承载，不作为独立会话重复显示。
 - **进程发现**：SwiftBar 后台采集器写入 agent 主进程及全部后代进程，并在 2 秒快照中保留 TTY；PID 到 cwd/session 的 `lsof` 元数据采用新 PID 快速解析、稳定 PID 周期复核的异步策略，不阻塞状态轮询。
@@ -183,7 +186,7 @@ macOS 没有向普通脚本提供稳定的通知权限查询接口，因此开�
 3. Claude 原生状态为 `waiting`：**等待确认**；原生状态为 `busy` / `working` / `running`：**进行中**。
 4. Claude 最新 `end_turn` 回复以直接问句结束，且之后没有新的人工消息：**等待回复**。
 5. Codex 未完成工具调用显式声明 `sandbox_permissions: "require_escalated"`，或对应 TTY 底部显示完整 Codex 确认界面：**等待确认**。
-6. 存在实际任务子进程：**进行中**（忽略 Codex 常驻的 `codex-code-mode-host` 和 app-server 进程）。
+6. 存在实际任务子进程：**进行中**（忽略 Codex 常驻的 `codex-code-mode-host`；ChatGPT 的共享 app-server 子进程不作为单个桌面 thread 的运行信号，避免一个 thread 的任务污染其他 thread）。
 7. 其他尚无同 ID 结果的工具调用：**进行中**。
 8. transcript 中有更晚的任务活动：**进行中**。Claude 的 `turn_duration` / `end_turn` 和 Codex 的 `task_complete` 将任务置为**就绪**；Codex 的 `task_started` 将任务置为**进行中**。
 9. Claude 原生状态为 `idle` / `ready`：**就绪**。
@@ -197,7 +200,8 @@ macOS 没有向普通脚本提供稳定的通知权限查询接口，因此开�
 ps ──> 精简 Agent/全部后代进程快照（2 秒）──────────────────────────┐
 lsof ──> 新 PID 快速解析、稳定 PID 30 秒批量复核（异步）────────────┤
 Claude sessions/statusline/transcript ──────────────────────────────┤
-Codex rollout ──> 按需异步探测目标 Terminal TTY 确认界面 ───────────┤
+Codex CLI rollout ──> 按需异步探测目标 Terminal TTY 确认界面 ───────┤
+ChatGPT codex app-server ──> 多 primary rollout / thread 深链接 ─────┤
 OpenCode SQLite/model catalog ───────────────────────────────────────┤
                                                                      v
                                                          agent-monitor.js
@@ -237,11 +241,11 @@ SwiftBar 通过唯一稳定入口 `scripts/agent-monitor.sh` 每秒刷新一次�
 
 `write-process-snapshot.sh` 使用一次 `ps -axo pid,ppid,etime,tty,command` 获取全量进程表，再由 `awk` 找出 Claude、Codex、OpenCode、DeepSeek Harness 主进程及其全部后代进程。快照保留 PID、PPID、进程寿命、TTY 和完整命令，供任务子进程判断及终端跳转使用。根 PID 列表只有内容变化时才替换，因此文件 inode 可以作为新建或退出会话的稳定变化键。
 
-Codex、OpenCode 和 DeepSeek Harness 的 cwd/session 元数据由 `write-process-metadata.sh` 自适应采集：
+Codex CLI、ChatGPT、OpenCode 和 DeepSeek Harness 的 cwd/session 元数据由 `write-process-metadata.sh` 自适应采集：
 
 - 根 PID inode 与上次已处理值不一致时立即运行，不依赖秒级 mtime，避免新会话与上次刷新恰好发生在同一秒时延迟 30 秒。
 - 需要解析的多个 PID 合并成一次 `lsof -Fn -p pid1,pid2,...`，避免逐 PID 启动 `lsof`。
-- Codex 映射只有同时获得有效 cwd 和仍存在的 rollout 文件才视为成功；OpenCode 和 DeepSeek Harness 获得有效 cwd 即可。
+- Codex 映射只有同时获得有效 cwd 和仍存在的 rollout 文件才视为成功；ChatGPT app-server 的进程 cwd 通常为 `/`，实际项目 cwd 改从每个 rollout 的 `session_meta` 读取；OpenCode 和 DeepSeek Harness 获得有效 cwd 即可。
 - 新 PID 尚未生成 rollout 时写入 retry 标记，入口脚本每 2 秒重试；解析成功后删除标记。
 - `lsof` 暂时失败时保留最后一次有效映射，但稳定 PID 仍会在 30 秒后重新验证，因此这不是永久缓存。
 - 已退出 PID 不再写入新的 metadata/state 文件，会随下一轮采集自然清除。
@@ -253,7 +257,7 @@ Codex、OpenCode 和 DeepSeek Harness 的 cwd/session 元数据由 `write-proces
 常驻的 `agent-monitor.js` 每 2 秒读取进程快照并聚合三类 Agent。进程元数据按 mtime 增量加载；文件没有变化时复用内存中的解析结果。
 
 - Claude 使用原生 session 状态、statusline 和 transcript，PID/session/cwd 不依赖周期 `lsof`。
-- Codex 将 PID 与 rollout 配对，按事件 ID 匹配工具调用和结果，并累计 `task_started`、`task_complete`、模型及 token 使用情况。
+- Codex CLI 将 PID 与最新 primary rollout 配对；ChatGPT app-server 会与其打开的全部 primary rollout 配对，并按 thread 拆分实例。两者都按事件 ID 匹配工具调用和结果，并累计 `task_started`、`task_complete`、模型及 token 使用情况。
 - OpenCode 按 cwd 查询 SQLite 中最新会话和消息，模型上下文窗口来自本地模型目录；数据库及模型文件签名未变化时复用查询结果。
 - Codex/Claude transcript 使用文件 mtime、大小和上次读取偏移量增量解析，只处理追加事件；文件截断或替换时才重新完整解析。
 
@@ -342,10 +346,10 @@ python3 -m py_compile scripts/render-menu.py
 - 开机自启无法开启：确认仓库没有被移动或删除，再重新执行开启操作；使用 `launchctl print "gui/$(id -u)/com.agentstatusbar.monitor"` 检查服务状态。
 - 使用 NVM 安装 Node 时，SwiftBar 会优先复用当前 LaunchAgent plist 中记录的 Node 绝对路径；该路径不可用时依次回退到 PATH、NVM 默认版本（支持版本号、主版本、`node`、`stable` 和 `lts/*` 等别名）及 Homebrew 标准安装位置。
 - Claude 没有上下文数据：重新运行安装器，并在 Claude 会话产生一次 statusline 更新。
-- 点击 Agent 没有跳转：检查 macOS“系统设置 → 隐私与安全性 → 自动化”中的终端控制权限。
+- 点击 Agent 没有跳转：终端会话请检查 macOS“系统设置 → 隐私与安全性 → 自动化”中的终端控制权限；ChatGPT 请确认 `/Applications/ChatGPT.app` 或 `/Applications/Codex.app` 已安装且 `codex://` 协议已由应用注册。
 - 点击 DeepSeek Harness 仍然新开 Chrome 标签页：确认“设置 → 浏览器标签页”显示为已开启，并在 macOS“系统设置 → 隐私与安全性 → 自动化”中允许 SwiftBar/Node.js 控制 Google Chrome；修改后刷新 SwiftBar 插件或点击“重启守护进程”。
 - 通知开关无法启用：重新点击“设置 → 通知”，确认允许安装依赖，并在系统通知设置中为 `terminal-notifier` 开启通知和横幅；看到测试通知后选择“已看到”。
-- 点击通知没有跳转：检查终端自动化权限，并确认通知对应的 Agent PID 仍然存活；发送失败时的 `osascript` 降级通知不支持点击跳转。
+- 点击通知没有跳转：终端 Agent 请检查自动化权限并确认 PID 仍存活；ChatGPT 请确认桌面应用可处理 `codex://threads/<thread-id>`；发送失败时的 `osascript` 降级通知不支持点击跳转。
 
 ## 开发
 

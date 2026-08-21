@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   buildAppleScript,
+  buildCodexFocusCommand,
   buildFocusCommand,
   buildNotificationExecuteCommand,
   buildTerminalNotifierArgs,
@@ -142,4 +143,52 @@ test('uses osascript directly when terminal-notifier is unavailable', () => {
   assert.equal(delivery, 'osascript');
   assert.equal(calls.length, 1);
   assert.equal(calls[0].command, '/usr/bin/osascript');
+});
+
+
+test('builds an exact ChatGPT Codex thread focus command', () => {
+  assert.equal(
+    buildCodexFocusCommand(
+      '01a02389-7898-7f60-a1b8-799d9017fe52',
+      '/usr/local/bin/node',
+      '/repo/scripts/focus-codex-thread.js'
+    ),
+    "'/usr/local/bin/node' '/repo/scripts/focus-codex-thread.js' '01a02389-7898-7f60-a1b8-799d9017fe52'"
+  );
+});
+
+test('prefers a ChatGPT Codex thread over the shared app-server PID', () => {
+  assert.equal(
+    buildNotificationExecuteCommand({
+      pid: 44793,
+      codexThreadId: '01a02389-7898-7f60-a1b8-799d9017fe52',
+      nodePath: '/usr/local/bin/node',
+      focusPath: '/repo/scripts/focus-agent-session.js',
+      focusCodexPath: '/repo/scripts/focus-codex-thread.js',
+    }),
+    "'/usr/local/bin/node' '/repo/scripts/focus-codex-thread.js' '01a02389-7898-7f60-a1b8-799d9017fe52'"
+  );
+});
+
+test('uses terminal-notifier for ChatGPT Codex thread notification clicks', () => {
+  const calls = [];
+  const delivery = sendNativeNotification({
+    subtitle: 'ChatGPT 等待回复',
+    message: 'ChatGPT 正在等待你的回复',
+    codexThreadId: '01a02389-7898-7f60-a1b8-799d9017fe52',
+  }, {
+    exists: value => value === '/opt/homebrew/bin/terminal-notifier',
+    run: (command, args, _options, callback) => {
+      calls.push({ command, args });
+      callback(null);
+    },
+    nodePath: '/usr/local/bin/node',
+    focusCodexPath: '/repo/scripts/focus-codex-thread.js',
+  });
+
+  assert.equal(delivery, 'terminal-notifier');
+  assert.deepEqual(calls[0].args.slice(-2), [
+    '-execute',
+    "'/usr/local/bin/node' '/repo/scripts/focus-codex-thread.js' '01a02389-7898-7f60-a1b8-799d9017fe52'",
+  ]);
 });

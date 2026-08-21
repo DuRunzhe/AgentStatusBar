@@ -1,6 +1,9 @@
 'use strict';
 
 function getInstanceTrackerKey(agentName, instance = {}) {
+  const codexThreadId = String(instance.codex_thread_id || '').trim();
+  if (codexThreadId) return `${agentName}:thread:${codexThreadId}`;
+
   const pids = Array.isArray(instance.pids)
     ? instance.pids
       .filter(pid => Number.isInteger(pid) && pid > 0)
