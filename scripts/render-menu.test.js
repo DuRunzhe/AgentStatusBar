@@ -258,33 +258,49 @@ test('keeps both waiting animation frames bold with color-only animation', () =>
 });
 
 
-test('renders auto-confirmation notifications as a direct checked notification setting', () => {
+test('renders enabled notification types as a multi-select submenu', () => {
   const enabled = render({
     summary: '🟢 1 ready',
-    display_config: { showWaitingNotificationsInAutoConfirmMode: true },
+    notifications_enabled: true,
+    display_config: {
+      notifyWaitingConfirmation: true,
+      notifyWaitingReply: false,
+      showWaitingNotificationsInAutoConfirmMode: true,
+    },
     ui: {
       settings: 'Settings',
       notifications: 'Notifications',
-      enableNotifications: 'Enable notifications',
-      enableAutoConfirmWaitingNotifications: 'Notify in auto-confirmation mode',
+      disableNotifications: 'Disable notifications',
+      notificationOptions: 'Notification options',
+      notifyWaitingConfirmation: 'Awaiting confirmation',
+      notifyWaitingReply: 'Waiting for reply',
+      notifyAutoConfirmWaiting: 'Notify in auto-confirmation mode',
+      openNotificationSettings: 'Open System Notification Settings',
+      notificationSettingsApp: 'App shown in Notifications: terminal-notifier',
       statusUnknown: 'Unknown',
     },
     agents: [],
   });
   const disabled = render({
     summary: '🟢 1 ready',
-    display_config: { showWaitingNotificationsInAutoConfirmMode: false },
+    notifications_enabled: false,
+    display_config: {},
     ui: {
       settings: 'Settings',
       notifications: 'Notifications',
       enableNotifications: 'Enable notifications',
-      disableAutoConfirmWaitingNotifications: 'Do not notify in auto-confirmation mode',
+      notificationOptions: 'Notification options',
       statusUnknown: 'Unknown',
     },
     agents: [],
   });
 
-  assert.match(enabled, /----Notify in auto-confirmation mode .*param0=\/repo\/notification-settings\.js param1=toggle-auto-confirm-waiting.*checked=true/);
-  assert.match(disabled, /----Do not notify in auto-confirmation mode .*param0=\/repo\/notification-settings\.js param1=toggle-auto-confirm-waiting/);
-  assert.doesNotMatch(disabled, /Do not notify in auto-confirmation mode.*checked=true/);
+  assert.match(enabled, /----Notification options \| sfimage=checklist/);
+  assert.match(enabled, /------Awaiting confirmation .*param1=toggle-preference param2=notifyWaitingConfirmation.*checked=true/);
+  assert.match(enabled, /------Waiting for reply .*param1=toggle-preference param2=notifyWaitingReply/);
+  assert.doesNotMatch(enabled, /Waiting for reply.*checked=true/);
+  assert.match(enabled, /------Notify in auto-confirmation mode .*param1=toggle-preference param2=showWaitingNotificationsInAutoConfirmMode.*checked=true/);
+  assert.match(disabled, /----Notification options \| sfimage=checklist disabled=true/);
+  assert.doesNotMatch(disabled, /------Awaiting confirmation/);
+  assert.match(disabled, /----Enable notifications .*param1=toggle/);
 });

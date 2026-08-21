@@ -103,3 +103,36 @@ test('localizes every browser tab reuse menu action', () => {
     ], labels);
   }
 });
+
+
+test('localizes every notification option menu item', () => {
+  const expected = {
+    en: [
+      'Notification options',
+      'Awaiting confirmation',
+      'Waiting for reply',
+      'Notify in auto-confirmation mode',
+    ],
+    'zh-Hans': [
+      '通知选项',
+      '等待确认',
+      '等待回复',
+      '自动确认模式仍通知',
+    ],
+    'zh-Hant': [
+      '通知選項',
+      '等待確認',
+      '等待回覆',
+      '自動確認模式仍通知',
+    ],
+  };
+  for (const [locale, labels] of Object.entries(expected)) {
+    const menu = getMessages(locale).menu;
+    assert.deepEqual([
+      menu.notificationOptions,
+      menu.notifyWaitingConfirmation,
+      menu.notifyWaitingReply,
+      menu.notifyAutoConfirmWaiting,
+    ], labels);
+  }
+});

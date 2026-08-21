@@ -5,7 +5,7 @@ const fs = require('fs');
 const { execFileSync } = require('child_process');
 const {
   readDisplayConfig,
-  setAutoConfirmWaitingNotificationsEnabled,
+  setNotificationPreference,
   setNotificationsEnabled,
 } = require('./display-config');
 const { detectLocale } = require('./i18n');
@@ -205,11 +205,10 @@ if (require.main === module) {
   const command = process.argv[2];
   if (command === 'toggle') {
     process.stdout.write(`${JSON.stringify(configureNotifications())}\n`);
-  } else if (command === 'toggle-auto-confirm-waiting') {
+  } else if (command === 'toggle-preference') {
+    const key = process.argv[3];
     const current = readDisplayConfig();
-    process.stdout.write(`${JSON.stringify(setAutoConfirmWaitingNotificationsEnabled(
-      current.showWaitingNotificationsInAutoConfirmMode !== true
-    ))}\n`);
+    process.stdout.write(`${JSON.stringify(setNotificationPreference(key, current[key] !== true))}\n`);
   } else if (command === 'open-settings') {
     openSystemNotificationSettings();
   } else {

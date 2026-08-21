@@ -162,15 +162,23 @@ def render_menu(data, paths, now=None, static_icon=False, icon_frame=None):
     lines.append(f"--{safe_text(ui.get('notifications', 'Notifications'))} | sfimage=bell")
     if node_cmd:
         lines.append(f"----{safe_text(action)} | bash={node_cmd} param0={notification_path} param1=toggle terminal=false refresh=true sfimage={icon} sfcolor={color}")
-        lines.append(f"----{safe_text(ui.get('openNotificationSettings', 'Open System Notification Settings'))} | bash={node_cmd} param0={notification_path} param1=open-settings terminal=false sfimage=gearshape")
-    lines.append(f"----{safe_text(ui.get('notificationSettingsApp', 'App shown in Notifications: terminal-notifier'))} | sfimage=app.badge disabled=true")
-    auto_confirm_waiting = config.get("showWaitingNotificationsInAutoConfirmMode") is not False
-    auto_confirm_action = ui.get("enableAutoConfirmWaitingNotifications", "Notify in auto-confirmation mode") if auto_confirm_waiting else ui.get("disableAutoConfirmWaitingNotifications", "Do not notify in auto-confirmation mode")
-    auto_confirm_icon = "bell.fill" if auto_confirm_waiting else "bell.slash"
-    auto_confirm_color = "#34C759" if auto_confirm_waiting else "#8E8E93"
-    auto_confirm_checked = " checked=true" if auto_confirm_waiting else ""
+    notification_options_label = safe_text(ui.get('notificationOptions', 'Notification options'))
+    if notifications:
+        lines.append(f"----{notification_options_label} | sfimage=checklist")
+        notification_preferences = (
+            ('notifyWaitingConfirmation', 'notifyWaitingConfirmation', 'Awaiting confirmation'),
+            ('notifyWaitingReply', 'notifyWaitingReply', 'Waiting for reply'),
+            ('showWaitingNotificationsInAutoConfirmMode', 'notifyAutoConfirmWaiting', 'Notify in auto-confirmation mode'),
+        )
+        if node_cmd:
+            for key, label_key, fallback in notification_preferences:
+                checked = " checked=true" if config.get(key) is not False else ""
+                lines.append(f"------{safe_text(ui.get(label_key, fallback))} | bash={node_cmd} param0={notification_path} param1=toggle-preference param2={key} terminal=false refresh=true{checked}")
+    else:
+        lines.append(f"----{notification_options_label} | sfimage=checklist disabled=true")
     if node_cmd:
-        lines.append(f"----{safe_text(auto_confirm_action)} | bash={node_cmd} param0={notification_path} param1=toggle-auto-confirm-waiting terminal=false refresh=true sfimage={auto_confirm_icon} sfcolor={auto_confirm_color}{auto_confirm_checked}")
+        lines.append(f"----{safe_text(ui.get('openNotificationSettings', 'Open System Notification Settings'))} | bash={node_cmd} param0={notification_path} param1=open-settings terminal=false refresh=true sfimage=gearshape")
+    lines.append(f"----{safe_text(ui.get('notificationSettingsApp', 'App shown in Notifications: terminal-notifier'))} | sfimage=app.badge disabled=true")
     browser_tab_reuse = config.get("browserTabReuse") is True
     browser_action = ui.get("disableBrowserTabReuse", "Click to disable browser tab reuse") if browser_tab_reuse else ui.get("enableBrowserTabReuse", "Click to enable browser tab reuse")
     browser_icon = "checkmark.circle.fill" if browser_tab_reuse else "circle"

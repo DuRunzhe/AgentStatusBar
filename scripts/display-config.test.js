@@ -9,7 +9,7 @@ const {
   DEFAULT_DISPLAY_CONFIG,
   normalizeDisplayConfig,
   readDisplayConfig,
-  setAutoConfirmWaitingNotificationsEnabled,
+  setNotificationPreference,
   setBrowserTabReuseEnabled,
   setNotificationsEnabled,
   toggleDisplayConfig,
@@ -72,13 +72,18 @@ test('browser tab reuse is disabled by default and persists independently', t =>
 });
 
 
-test('auto-confirmation waiting alerts are enabled by default and persist independently', t => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-statusbar-auto-confirm-config-test-'));
+test('notification preferences default to enabled and persist independently', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-statusbar-notification-preferences-test-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const configFile = path.join(root, 'config.json');
 
-  assert.equal(readDisplayConfig(configFile).showWaitingNotificationsInAutoConfirmMode, true);
-  assert.equal(setAutoConfirmWaitingNotificationsEnabled(false, configFile).showWaitingNotificationsInAutoConfirmMode, false);
+  const defaults = readDisplayConfig(configFile);
+  assert.equal(defaults.notifyWaitingConfirmation, true);
+  assert.equal(defaults.notifyWaitingReply, true);
+  assert.equal(defaults.showWaitingNotificationsInAutoConfirmMode, true);
+  assert.equal(setNotificationPreference('notifyWaitingConfirmation', false, configFile).notifyWaitingConfirmation, false);
+  assert.equal(setNotificationPreference('notifyWaitingReply', false, configFile).notifyWaitingReply, false);
+  assert.equal(setNotificationPreference('showWaitingNotificationsInAutoConfirmMode', false, configFile).showWaitingNotificationsInAutoConfirmMode, false);
   assert.equal(readDisplayConfig(configFile).notifications, false);
-  assert.equal(setAutoConfirmWaitingNotificationsEnabled(true, configFile).showWaitingNotificationsInAutoConfirmMode, true);
+  assert.throws(() => setNotificationPreference('unknown', true, configFile));
 });

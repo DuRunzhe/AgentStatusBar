@@ -12,7 +12,9 @@ function isAutomaticConfirmationMode(agentName, sessionAnalysis) {
 }
 
 function shouldNotifyForInstance(instance, config) {
+  if (instance?.state === 'waiting_reply') return config?.notifyWaitingReply !== false;
   if (instance?.state !== 'waiting') return true;
+  if (config?.notifyWaitingConfirmation === false) return false;
   return config?.showWaitingNotificationsInAutoConfirmMode !== false
     || instance?.automatic_confirmation_mode !== true;
 }

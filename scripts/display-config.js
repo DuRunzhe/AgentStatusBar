@@ -17,6 +17,8 @@ const DEFAULT_DISPLAY_CONFIG = Object.freeze({
   ...Object.fromEntries(CONFIG_KEYS.map(key => [key, true])),
   browserTabReuse: false,
   notifications: false,
+  notifyWaitingConfirmation: true,
+  notifyWaitingReply: true,
   showWaitingNotificationsInAutoConfirmMode: true,
 });
 
@@ -34,6 +36,8 @@ function normalizeDisplayConfig(value) {
     if (typeof value[key] === 'boolean') config[key] = value[key];
   }
   if (typeof value.notifications === 'boolean') config.notifications = value.notifications;
+  if (typeof value.notifyWaitingConfirmation === 'boolean') config.notifyWaitingConfirmation = value.notifyWaitingConfirmation;
+  if (typeof value.notifyWaitingReply === 'boolean') config.notifyWaitingReply = value.notifyWaitingReply;
   if (typeof value.showWaitingNotificationsInAutoConfirmMode === 'boolean') {
     config.showWaitingNotificationsInAutoConfirmMode = value.showWaitingNotificationsInAutoConfirmMode;
   }
@@ -72,10 +76,17 @@ function setNotificationsEnabled(enabled, configFile = DEFAULT_CONFIG_FILE) {
   return writeDisplayConfig(config, configFile);
 }
 
-function setAutoConfirmWaitingNotificationsEnabled(enabled, configFile = DEFAULT_CONFIG_FILE) {
+function setNotificationPreference(key, enabled, configFile = DEFAULT_CONFIG_FILE) {
+  if (!['notifyWaitingConfirmation', 'notifyWaitingReply', 'showWaitingNotificationsInAutoConfirmMode'].includes(key)) {
+    throw new Error(`Unknown notification preference: ${key}`);
+  }
   const config = readDisplayConfig(configFile);
-  config.showWaitingNotificationsInAutoConfirmMode = enabled === true;
+  config[key] = enabled === true;
   return writeDisplayConfig(config, configFile);
+}
+
+function setAutoConfirmWaitingNotificationsEnabled(enabled, configFile = DEFAULT_CONFIG_FILE) {
+  return setNotificationPreference('showWaitingNotificationsInAutoConfirmMode', enabled, configFile);
 }
 
 function setBrowserTabReuseEnabled(enabled, configFile = DEFAULT_CONFIG_FILE) {
@@ -102,6 +113,7 @@ module.exports = {
   readDisplayConfig,
   setAutoConfirmWaitingNotificationsEnabled,
   setBrowserTabReuseEnabled,
+  setNotificationPreference,
   setNotificationsEnabled,
   toggleDisplayConfig,
   writeDisplayConfig,
