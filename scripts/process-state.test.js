@@ -57,10 +57,14 @@ test('identifies Codex app-server processes without excluding remote TUIs', () =
   assert.equal(isCodexAppServerProcess('/opt/bin/codex --remote unix://./socket'), false);
 });
 
-test('ignores the persistent Codex code mode host only for Codex', () => {
-  const command = '/usr/local/lib/codex-code-mode-host';
-  assert.equal(isIgnoredChildProcess('Codex', command), true);
-  assert.equal(isIgnoredChildProcess('Claude', command), false);
+test('ignores persistent Codex hosts only for Codex', () => {
+  const codeModeHost = '/usr/local/lib/codex-code-mode-host';
+  const nodeReplHost = '/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl';
+  assert.equal(isIgnoredChildProcess('Codex', codeModeHost), true);
+  assert.equal(isIgnoredChildProcess('Codex', nodeReplHost), true);
+  assert.equal(isIgnoredChildProcess('Claude', codeModeHost), false);
+  assert.equal(isIgnoredChildProcess('Claude', nodeReplHost), false);
+  assert.equal(isIgnoredChildProcess('Codex', '/usr/local/bin/node_repl'), false);
   assert.equal(isIgnoredChildProcess('Codex', '/bin/zsh'), false);
   assert.equal(isIgnoredChildProcess('DeepSeek Harness', 'node /tmp/node_modules/.bin/dsh web'), true);
 });
@@ -103,6 +107,21 @@ test('finds active nested task processes while ignoring the persistent host itse
 
   assert.equal(hasActiveDescendantProcesses(100, 'Codex', processes), true);
   assert.equal(hasActiveDescendantProcesses(100, 'Codex', processes.slice(0, 2)), false);
+});
+
+test('treats the persistent Codex Node REPL as idle but counts commands below it', () => {
+  const processes = [
+    { pid: 200, ppid: 1, command: '/bin/codex' },
+    {
+      pid: 201,
+      ppid: 200,
+      command: '/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl',
+    },
+    { pid: 202, ppid: 201, command: '/bin/zsh -lc npm test' },
+  ];
+
+  assert.equal(hasActiveDescendantProcesses(200, 'Codex', processes.slice(0, 2)), false);
+  assert.equal(hasActiveDescendantProcesses(200, 'Codex', processes), true);
 });
 
 test('ignores wrapped agent child processes while still counting their task children', () => {

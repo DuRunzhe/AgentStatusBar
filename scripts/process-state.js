@@ -80,10 +80,20 @@ function getAgentNamesForDisplayName(agentName) {
   return [];
 }
 
+function isCodexPersistentHostProcess(command) {
+  const executable = String(command || '').trim().split(/\s+/, 1)[0];
+  const name = path.basename(executable);
+  if (name === 'codex-code-mode-host') return true;
+
+  // Recent Codex builds keep a ChatGPT-provided Node REPL alive for the whole
+  // session. The host itself is idle infrastructure; commands spawned below it
+  // are still detected as active descendants.
+  return name === 'node_repl'
+    && /\/(?:ChatGPT|Codex)\.app\/Contents\/Resources\/cua_node\/bin\/node_repl$/i.test(executable);
+}
+
 function isIgnoredChildProcess(agentName, command) {
-  if (agentName === 'Codex' && getProcessExecutableName(command) === 'codex-code-mode-host') {
-    return true;
-  }
+  if (agentName === 'Codex' && isCodexPersistentHostProcess(command)) return true;
   return Boolean(getMatchedAgentProcessName(command, getAgentNamesForDisplayName(agentName)));
 }
 
