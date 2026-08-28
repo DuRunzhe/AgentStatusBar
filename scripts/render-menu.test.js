@@ -134,6 +134,52 @@ test('renders waiting and stopped states with lightweight symbols', () => {
   assert.match(output, /⚪ Claude: Stopped \| color=#8E8E93/);
 });
 
+test('can hide stopped agents from the menu', () => {
+  const output = render({
+    summary: '🔵 1 working',
+    display_config: { stoppedAgents: false },
+    ui: {
+      displayConfig: 'Display options',
+      showStoppedAgents: 'Stopped agents',
+      statusStopped: 'Stopped',
+      statusUnknown: 'Unknown',
+    },
+    agents: [{
+      name: 'Claude',
+      instances: [
+        { state: 'working', label: 'Claude (live)', status_label: 'Working', pids: [42] },
+        { state: 'stopped', label: 'Claude (old)', status_label: 'Stopped', pids: [] },
+      ],
+    }, {
+      name: 'Codex',
+      instances: [],
+    }],
+  });
+
+  assert.match(output, /Claude \(live\): Working/);
+  assert.doesNotMatch(output, /Claude \(old\): Stopped/);
+  assert.doesNotMatch(output, /Codex: Stopped/);
+  assert.match(output, /----Stopped agents .*param1=toggle param2=stoppedAgents/);
+  assert.doesNotMatch(output, /Stopped agents.*checked=true/);
+});
+
+test('shows the stopped agents setting as enabled by default', () => {
+  const output = render({
+    summary: '⚪ No activity',
+    display_config: {},
+    ui: {
+      displayConfig: 'Display options',
+      showStoppedAgents: 'Stopped agents',
+      statusStopped: 'Stopped',
+    },
+    agents: [{ name: 'Claude', instances: [] }],
+  });
+
+  assert.match(output, /⚪ Claude: Stopped \| color=#8E8E93/);
+  assert.match(output, /----Stopped agents .*param2=stoppedAgents.*checked=true/);
+  assert.ok(output.indexOf('----Total context') < output.indexOf('----Stopped agents'));
+});
+
 test('renders web agent instances as browser links', () => {
   const output = render({
     summary: '🟢 1 ready',

@@ -6,6 +6,7 @@ const os = require('os');
 const path = require('path');
 
 const CONFIG_KEYS = [
+  'stoppedAgents',
   'duration',
   'model',
   'contextPercent',

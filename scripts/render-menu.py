@@ -107,10 +107,13 @@ def render_menu(data, paths, now=None, static_icon=False, icon_frame=None):
         name = safe_text(agent.get("name", "Agent"))
         instances = agent.get("instances", [])
         if not instances:
-            lines.append(f"⚪ {name}: {stopped_text} | color=#8E8E93")
+            if visible(config, "stoppedAgents"):
+                lines.append(f"⚪ {name}: {stopped_text} | color=#8E8E93")
             continue
         for instance in instances:
             state = instance.get("state", "stopped")
+            if state == "stopped" and not visible(config, "stoppedAgents"):
+                continue
             pids = instance.get("pids", [])
             line = (
                 f"{state_emoji(state)} {safe_text(instance.get('label', name))}: "
@@ -206,6 +209,7 @@ def render_menu(data, paths, now=None, static_icon=False, icon_frame=None):
         ("contextPercent", "showContextPercent", "Context usage percentage"),
         ("contextUsed", "showContextUsed", "Context used"),
         ("contextTotal", "showContextTotal", "Total context"),
+        ("stoppedAgents", "showStoppedAgents", "Stopped agents"),
     ):
         checked = " checked=true" if visible(config, key) else ""
         if node_cmd:

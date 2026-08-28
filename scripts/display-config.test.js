@@ -44,6 +44,16 @@ test('toggles and persists a display setting', t => {
   assert.equal(toggleDisplayConfig('model', configFile).model, true);
 });
 
+test('stopped agents are shown by default and can be hidden', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-statusbar-stopped-agents-config-test-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const configFile = path.join(root, 'config.json');
+
+  assert.equal(readDisplayConfig(configFile).stoppedAgents, true);
+  assert.equal(toggleDisplayConfig('stoppedAgents', configFile).stoppedAgents, false);
+  assert.equal(readDisplayConfig(configFile).stoppedAgents, false);
+});
+
 test('rejects unknown display settings', () => {
   assert.throws(() => toggleDisplayConfig('unknown', '/tmp/unused-config.json'));
   assert.throws(() => toggleDisplayConfig('browserTabReuse', '/tmp/unused-config.json'));
