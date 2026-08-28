@@ -81,15 +81,21 @@ function getAgentNamesForDisplayName(agentName) {
 }
 
 function isCodexPersistentHostProcess(command) {
-  const executable = String(command || '').trim().split(/\s+/, 1)[0];
+  const value = String(command || '').trim();
+  const executable = value.split(/\s+/, 1)[0];
   const name = path.basename(executable);
   if (name === 'codex-code-mode-host') return true;
 
-  // Recent Codex builds keep a ChatGPT-provided Node REPL alive for the whole
-  // session. The host itself is idle infrastructure; commands spawned below it
-  // are still detected as active descendants.
-  return name === 'node_repl'
-    && /\/(?:ChatGPT|Codex)\.app\/Contents\/Resources\/cua_node\/bin\/node_repl$/i.test(executable);
+  const cuaNodePath = /\/(?:ChatGPT|Codex)\.app\/Contents\/Resources\/cua_node\/bin\//i;
+  if (name === 'node_repl' && cuaNodePath.test(executable)) return true;
+
+  // The Node REPL lazily starts a sandboxed kernel and trusted worker, then
+  // keeps both Node processes alive after the turn completes. They are idle
+  // infrastructure just like node_repl; real shell/tool processes spawned
+  // beneath them must still count as active descendants.
+  return name === 'node'
+    && cuaNodePath.test(executable)
+    && /\/T\/\.tmp[^/\s]+\/(?:kernel|trusted-worker)\.js(?:\s|$)/i.test(value);
 }
 
 function isIgnoredChildProcess(agentName, command) {

@@ -186,7 +186,7 @@ macOS 没有向普通脚本提供稳定的通知权限查询接口，因此开�
 3. Claude 原生状态为 `waiting`：**等待确认**；原生状态为 `busy` / `working` / `running`：**进行中**。
 4. Claude 最新 `end_turn` 回复以直接问句结束，且之后没有新的人工消息：**等待回复**。
 5. Codex 未完成工具调用显式声明 `sandbox_permissions: "require_escalated"`，或对应 TTY 底部显示完整 Codex 确认界面：**等待确认**。
-6. 存在实际任务子进程：**进行中**（忽略 Codex 常驻的 `codex-code-mode-host` 和 ChatGPT `cua_node` 的 `node_repl` 宿主，但仍识别它们启动的任务后代进程；ChatGPT 的共享 app-server 子进程不作为单个桌面 thread 的运行信号，避免一个 thread 的任务污染其他 thread）。
+6. 存在实际任务子进程：**进行中**（忽略 Codex 常驻的 `codex-code-mode-host`、ChatGPT `cua_node` 的 `node_repl` 宿主及其常驻 kernel/worker，但仍识别它们启动的任务后代进程；ChatGPT 的共享 app-server 子进程不作为单个桌面 thread 的运行信号，避免一个 thread 的任务污染其他 thread）。
 7. 其他尚无同 ID 结果的工具调用：**进行中**。
 8. transcript 中有更晚的任务活动：**进行中**。Claude 的 `turn_duration` / `end_turn` 和 Codex 的 `task_complete` 将任务置为**就绪**；Codex 的 `task_started` 将任务置为**进行中**。
 9. Claude 原生状态为 `idle` / `ready`：**就绪**。

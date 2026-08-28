@@ -124,6 +124,48 @@ test('treats the persistent Codex Node REPL as idle but counts commands below it
   assert.equal(hasActiveDescendantProcesses(200, 'Codex', processes), true);
 });
 
+test('treats persistent Codex Node REPL workers as idle but counts their tasks', () => {
+  const tmpDir = '/var/folders/xx/example/T/.tmpAbC123';
+  const processes = [
+    { pid: 300, ppid: 1, command: '/bin/codex' },
+    {
+      pid: 301,
+      ppid: 300,
+      command: '/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl',
+    },
+    {
+      pid: 302,
+      ppid: 301,
+      command: `/Applications/ChatGPT.app/Contents/Resources/codex sandbox -- `
+        + `/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node ${tmpDir}/kernel.js`,
+    },
+    {
+      pid: 303,
+      ppid: 302,
+      command: `/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node `
+        + `--experimental-vm-modules ${tmpDir}/kernel.js --session-id session-1`,
+    },
+    {
+      pid: 304,
+      ppid: 301,
+      command: `/Applications/ChatGPT.app/Contents/Resources/codex sandbox -- `
+        + `/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node ${tmpDir}/trusted-worker.js`,
+    },
+    {
+      pid: 305,
+      ppid: 304,
+      command: `/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node `
+        + `--experimental-vm-modules ${tmpDir}/trusted-worker.js /repo`,
+    },
+    { pid: 306, ppid: 303, command: '/bin/zsh -lc npm test' },
+  ];
+
+  assert.equal(hasActiveDescendantProcesses(300, 'Codex', processes.slice(0, 6)), false);
+  assert.equal(hasActiveDescendantProcesses(300, 'Codex', processes), true);
+  assert.equal(isIgnoredChildProcess('Claude', processes[3].command), false);
+  assert.equal(isIgnoredChildProcess('Codex', '/usr/local/bin/node /tmp/kernel.js'), false);
+});
+
 test('ignores wrapped agent child processes while still counting their task children', () => {
   const processes = [
     { pid: 200, ppid: 1, command: 'npm exec @deepseek-ai/dsh web' },
