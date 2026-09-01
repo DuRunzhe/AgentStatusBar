@@ -18,6 +18,19 @@ WORKING_CONFIGS = (
     "eyJyZW5kZXJpbmdNb2RlIjoiUGFsZXR0ZSIsImNvbG9ycyI6WyIjNjREMkZGIl0sInNjYWxlIjoibGFyZ2UiLCJ3ZWlnaHQiOiJyZWd1bGFyIn0=",
 )
 ANIMATED_SYMBOL = "smallcircle.fill.circle"
+DISPLAY_CONFIG_KEYS = {
+    "stoppedAgents",
+    "duration",
+    "model",
+    "contextPercent",
+    "contextUsed",
+    "contextTotal",
+    "browserTabReuse",
+    "notifications",
+    "notifyWaitingConfirmation",
+    "notifyWaitingReply",
+    "showWaitingNotificationsInAutoConfirmMode",
+}
 
 
 def safe_text(value):
@@ -61,6 +74,26 @@ def visible(config, key):
     return config.get(key, True) is not False
 
 
+def read_live_display_config(fallback):
+    """Read settings directly so menu clicks do not wait for the daemon poll."""
+    config_path = os.environ.get(
+        "AGENT_STATUSBAR_CONFIG_FILE",
+        os.path.expanduser("~/.config/agent-statusbar/config.json"),
+    )
+    try:
+        with open(config_path, encoding="utf-8") as config_file:
+            value = json.load(config_file)
+        if not isinstance(value, dict):
+            return fallback
+        config = dict(fallback)
+        for key in DISPLAY_CONFIG_KEYS:
+            if isinstance(value.get(key), bool):
+                config[key] = value[key]
+        return config
+    except (OSError, ValueError, TypeError):
+        return fallback
+
+
 def state_emoji(state):
     return {
         "waiting": "🟡",
@@ -100,7 +133,10 @@ def render_menu(data, paths, now=None, static_icon=False, icon_frame=None):
         lines.append(summary)
 
     lines.append("---")
-    config = data.get("display_config", {})
+    fallback_config = dict(data.get("display_config", {}))
+    if "notifications" not in fallback_config:
+        fallback_config["notifications"] = data.get("notifications_enabled") is True
+    config = read_live_display_config(fallback_config)
     stopped_text = safe_text(ui.get("statusStopped", "Stopped"))
     unknown_text = safe_text(ui.get("statusUnknown", "Unknown"))
     for agent in data.get("agents", []):
@@ -169,7 +205,7 @@ def render_menu(data, paths, now=None, static_icon=False, icon_frame=None):
     if node_cmd:
         lines.append(f"----{safe_text(startup_action)} | bash={node_cmd} param0={startup_path} param1=toggle terminal=false refresh=true sfimage={startup_icon} sfcolor={startup_color}")
         lines.append(f"----{safe_text(ui.get('openLoginItems', 'Open Login Items Settings'))} | bash={node_cmd} param0={startup_path} param1=open-settings terminal=false sfimage=gearshape")
-    notifications = data.get("notifications_enabled") is True
+    notifications = config.get("notifications") is True
     action = ui.get("disableNotifications", "Click to disable notifications") if notifications else ui.get("enableNotifications", "Click to enable notifications")
     icon = "bell.fill" if notifications else "bell.slash"
     color = "#34C759" if notifications else "#8E8E93"
@@ -187,7 +223,8 @@ def render_menu(data, paths, now=None, static_icon=False, icon_frame=None):
         if node_cmd:
             for key, label_key, fallback in notification_preferences:
                 checked = " checked=true" if config.get(key) is not False else ""
-                lines.append(f"------{safe_text(ui.get(label_key, fallback))} | bash={node_cmd} param0={notification_path} param1=toggle-preference param2={key} terminal=false refresh=true{checked}")
+                target = "false" if config.get(key) is not False else "true"
+                lines.append(f"------{safe_text(ui.get(label_key, fallback))} | bash={node_cmd} param0={notification_path} param1=toggle-preference param2={key} param3={target} terminal=false refresh=true{checked}")
     else:
         lines.append(f"----{notification_options_label} | sfimage=checklist disabled=true")
     if node_cmd:
@@ -213,7 +250,8 @@ def render_menu(data, paths, now=None, static_icon=False, icon_frame=None):
     ):
         checked = " checked=true" if visible(config, key) else ""
         if node_cmd:
-            lines.append(f"----{safe_text(ui.get(label_key, fallback))} | bash={node_cmd} param0={display_path} param1=toggle param2={key} terminal=false refresh=true{checked}")
+            target = "false" if visible(config, key) else "true"
+            lines.append(f"----{safe_text(ui.get(label_key, fallback))} | bash={node_cmd} param0={display_path} param1=toggle param2={key} param3={target} terminal=false refresh=true{checked}")
 
     lines.append("---")
     updated_at = format_status_time(data.get("timestamp"), now)

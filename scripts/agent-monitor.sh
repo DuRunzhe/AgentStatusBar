@@ -70,6 +70,7 @@ FOCUS_WEB_PATH="$SCRIPT_DIR/focus-web-url.js"
 FOCUS_CODEX_PATH="$SCRIPT_DIR/focus-codex-thread.js"
 I18N_PATH="$SCRIPT_DIR/i18n.js"
 DISPLAY_CONFIG_PATH="$SCRIPT_DIR/display-config.js"
+DISPLAY_CONFIG_FILE="$HOME/.config/agent-statusbar/config.json"
 NOTIFICATION_SETTINGS_PATH="$SCRIPT_DIR/notification-settings.js"
 BROWSER_TAB_SETTINGS_PATH="$SCRIPT_DIR/browser-tab-settings.js"
 STARTUP_SETTINGS_PATH="$SCRIPT_DIR/startup-settings.js"
@@ -186,13 +187,14 @@ refresh_terminal_state() {
 }
 
 menu_cache_key() {
-  local status_signature render_signature startup_signature startup_file node_signature
+  local status_signature render_signature config_signature startup_signature startup_file node_signature
   startup_file="$HOME/Library/LaunchAgents/com.agentstatusbar.monitor.plist"
   status_signature=$(stat -f '%m:%z' "$STATUS_FILE" 2>/dev/null || echo missing)
   render_signature=$(stat -f '%m:%z' "$RENDER_PATH" 2>/dev/null || echo missing)
+  config_signature=$(/usr/bin/shasum -a 256 "$DISPLAY_CONFIG_FILE" 2>/dev/null | /usr/bin/awk '{print $1}' || echo missing)
   startup_signature=$(stat -f '%m:%z' "$startup_file" 2>/dev/null || echo missing)
   node_signature=${NODE_CMD:-missing}
-  printf '%s|%s|%s|%s\n' "$status_signature" "$render_signature" "$startup_signature" "$node_signature"
+  printf '%s|%s|%s|%s|%s\n' "$status_signature" "$render_signature" "$config_signature" "$startup_signature" "$node_signature"
 }
 
 refresh_menu_cache() {
@@ -226,6 +228,8 @@ refresh_menu_cache() {
     --cache-key "$expected_key"
   /bin/rmdir "$MENU_CACHE_LOCK" 2>/dev/null || true
 }
+
+export AGENT_STATUSBAR_CONFIG_FILE="$DISPLAY_CONFIG_FILE"
 
 refresh_locale_cache "$NOW"
 refresh_file_async "$PROCESS_SNAPSHOT_FILE" "$PROCESS_SNAPSHOT_LOCK" 2 30 "$PROCESS_SNAPSHOT_PATH" snapshot

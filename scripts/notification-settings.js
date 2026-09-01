@@ -207,8 +207,12 @@ if (require.main === module) {
     process.stdout.write(`${JSON.stringify(configureNotifications())}\n`);
   } else if (command === 'toggle-preference') {
     const key = process.argv[3];
+    const requested = process.argv[4];
     const current = readDisplayConfig();
-    process.stdout.write(`${JSON.stringify(setNotificationPreference(key, current[key] !== true))}\n`);
+    const enabled = requested === 'true' || requested === 'false'
+      ? requested === 'true'
+      : current[key] !== true;
+    process.stdout.write(`${JSON.stringify(setNotificationPreference(key, enabled))}\n`);
   } else if (command === 'open-settings') {
     openSystemNotificationSettings();
   } else {

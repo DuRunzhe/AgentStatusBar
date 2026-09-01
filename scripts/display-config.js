@@ -23,7 +23,7 @@ const DEFAULT_DISPLAY_CONFIG = Object.freeze({
   showWaitingNotificationsInAutoConfirmMode: true,
 });
 
-const DEFAULT_CONFIG_FILE = path.join(
+const DEFAULT_CONFIG_FILE = process.env.AGENT_STATUSBAR_CONFIG_FILE || path.join(
   os.homedir(),
   '.config',
   'agent-statusbar',
@@ -64,11 +64,17 @@ function writeDisplayConfig(config, configFile = DEFAULT_CONFIG_FILE) {
   return normalized;
 }
 
+function setDisplayConfig(key, enabled, configFile = DEFAULT_CONFIG_FILE) {
+  if (!CONFIG_KEYS.includes(key)) throw new Error(`Unknown display setting: ${key}`);
+  const config = readDisplayConfig(configFile);
+  config[key] = enabled === true;
+  return writeDisplayConfig(config, configFile);
+}
+
 function toggleDisplayConfig(key, configFile = DEFAULT_CONFIG_FILE) {
   if (!CONFIG_KEYS.includes(key)) throw new Error(`Unknown display setting: ${key}`);
   const config = readDisplayConfig(configFile);
-  config[key] = !config[key];
-  return writeDisplayConfig(config, configFile);
+  return setDisplayConfig(key, !config[key], configFile);
 }
 
 function setNotificationsEnabled(enabled, configFile = DEFAULT_CONFIG_FILE) {
@@ -97,10 +103,12 @@ function setBrowserTabReuseEnabled(enabled, configFile = DEFAULT_CONFIG_FILE) {
 }
 
 if (require.main === module) {
-  const [command, key] = process.argv.slice(2);
+  const [command, key, value] = process.argv.slice(2);
   try {
     if (command === 'toggle') toggleDisplayConfig(key);
-    else process.exitCode = 1;
+    else if (command === 'set' && (value === 'true' || value === 'false')) {
+      setDisplayConfig(key, value === 'true');
+    } else process.exitCode = 1;
   } catch {
     process.exitCode = 1;
   }
@@ -114,6 +122,7 @@ module.exports = {
   readDisplayConfig,
   setAutoConfirmWaitingNotificationsEnabled,
   setBrowserTabReuseEnabled,
+  setDisplayConfig,
   setNotificationPreference,
   setNotificationsEnabled,
   toggleDisplayConfig,
