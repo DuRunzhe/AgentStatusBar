@@ -2,6 +2,7 @@
 """Render AgentStatusBar's SwiftBar menu in one JSON parse."""
 
 import json
+import math
 import os
 import re
 import sys
@@ -59,6 +60,46 @@ def format_tokens(value):
     if value >= 1_000:
         return f"{value / 1_000:.0f}k"
     return str(value)
+
+
+def finite_number(value):
+    """Return a finite numeric value, or None for malformed status data."""
+    if isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def format_context_usage(context, config, ui):
+    """Format optional context data without letting a partial snapshot break the menu."""
+    if not isinstance(context, dict):
+        return ""
+
+    used_value = finite_number(context.get("used_tokens"))
+    total_value = finite_number(context.get("window_tokens"))
+    if used_value is None or total_value is None or total_value <= 0:
+        return ""
+
+    used = format_tokens(used_value)
+    total = format_tokens(total_value)
+    percent = finite_number(context.get("percent"))
+    if percent is None:
+        percent = (used_value / total_value) * 100
+
+    show_percent = visible(config, "contextPercent")
+    show_used = visible(config, "contextUsed")
+    show_total = visible(config, "contextTotal")
+    line = f" · {percent:.1f}%" if show_percent else ""
+    if show_used and show_total:
+        line += f"{' ' if show_percent else ' · '}({used}/{total})"
+    elif show_used:
+        line += f" · {safe_text(ui.get('contextUsed', 'Used'))} {used}"
+    elif show_total:
+        line += f" · {safe_text(ui.get('contextTotal', 'Total'))} {total}"
+    return line
 
 
 def format_status_time(value, fallback):
@@ -170,19 +211,7 @@ def render_menu(data, paths, now=None, static_icon=False, icon_frame=None):
                 line += f" · {safe_text(instance['model'])}"
             context = instance.get("context_usage")
             if context:
-                used = format_tokens(context["used_tokens"])
-                total = format_tokens(context["window_tokens"])
-                show_percent = visible(config, "contextPercent")
-                show_used = visible(config, "contextUsed")
-                show_total = visible(config, "contextTotal")
-                if show_percent:
-                    line += f" · {context['percent']:.1f}%"
-                if show_used and show_total:
-                    line += f"{' ' if show_percent else ' · '}({used}/{total})"
-                elif show_used:
-                    line += f" · {safe_text(ui.get('contextUsed', 'Used'))} {used}"
-                elif show_total:
-                    line += f" · {safe_text(ui.get('contextTotal', 'Total'))} {total}"
+                line += format_context_usage(context, config, ui)
             line += " |"
             if state == "stopped":
                 line += " color=#8E8E93"

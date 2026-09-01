@@ -119,6 +119,27 @@ test('renders one working menu without Base64 image payloads', () => {
   assert.doesNotMatch(output, /\| image=/);
 });
 
+test('calculates a missing context percentage from a partial status snapshot', () => {
+  const output = render({
+    summary: '🟢 1 ready',
+    display_config: {},
+    ui: { statusUnknown: 'Unknown' },
+    agents: [{
+      name: 'Codex',
+      instances: [{
+        state: 'ready',
+        label: 'Codex',
+        status_label: 'Ready',
+        pids: [42],
+        context_usage: { used_tokens: 12000, window_tokens: 100000 },
+      }],
+    }],
+  });
+
+  assert.match(output, /🟢 Codex: Ready · 12\.0% \(12k\/100k\)/);
+  assert.doesNotMatch(output, /Unable to render status/);
+});
+
 test('renders waiting and stopped states with lightweight symbols', () => {
   const output = render({
     summary: '🟡 1 awaiting confirmation',
