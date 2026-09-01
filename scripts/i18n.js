@@ -1,6 +1,7 @@
 'use strict';
 
 const { execFileSync } = require('child_process');
+const { readDisplayConfig } = require('./display-config');
 
 const DEFAULT_LOCALE = 'en';
 
@@ -74,6 +75,11 @@ const MESSAGES = {
       showContextTotal: 'Total context',
       contextUsed: 'Used',
       contextTotal: 'Total',
+      language: 'Language',
+      languageSystem: 'Follow system',
+      languageEnglish: 'English',
+      languageSimplifiedChinese: '简体中文',
+      languageTraditionalChinese: '繁體中文',
     },
   },
   'zh-Hans': {
@@ -145,6 +151,11 @@ const MESSAGES = {
       showContextTotal: '总上下文',
       contextUsed: '已用',
       contextTotal: '总量',
+      language: '语言',
+      languageSystem: '跟随系统',
+      languageEnglish: 'English',
+      languageSimplifiedChinese: '简体中文',
+      languageTraditionalChinese: '繁體中文',
     },
   },
   'zh-Hant': {
@@ -216,6 +227,11 @@ const MESSAGES = {
       showContextTotal: '總上下文',
       contextUsed: '已用',
       contextTotal: '總量',
+      language: '語言',
+      languageSystem: '跟隨系統',
+      languageEnglish: 'English',
+      languageSimplifiedChinese: '簡體中文',
+      languageTraditionalChinese: '繁體中文',
     },
   },
 };
@@ -270,6 +286,11 @@ function readGlobalPreference(key) {
 }
 
 function detectLocale(readPreference = readGlobalPreference) {
+  if (readPreference === readGlobalPreference) {
+    const configuredLocale = readDisplayConfig().locale;
+    if (configuredLocale !== 'system') return configuredLocale;
+  }
+
   const languages = parseAppleLanguages(readPreference('AppleLanguages'));
   const fallbackLanguage = process.env.LC_ALL || process.env.LC_MESSAGES || process.env.LANG;
   if (languages.length === 0 && fallbackLanguage) languages.push(fallbackLanguage);

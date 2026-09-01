@@ -3,7 +3,10 @@
 
 const fs = require('fs');
 const os = require('os');
+const { execFileSync } = require('child_process');
 const path = require('path');
+
+const SUPPORTED_LOCALES = ['system', 'en', 'zh-Hans', 'zh-Hant'];
 
 const CONFIG_KEYS = [
   'stoppedAgents',
@@ -21,6 +24,7 @@ const DEFAULT_DISPLAY_CONFIG = Object.freeze({
   notifyWaitingConfirmation: true,
   notifyWaitingReply: true,
   showWaitingNotificationsInAutoConfirmMode: true,
+  locale: 'system',
 });
 
 const DEFAULT_CONFIG_FILE = process.env.AGENT_STATUSBAR_CONFIG_FILE || path.join(
@@ -43,6 +47,7 @@ function normalizeDisplayConfig(value) {
     config.showWaitingNotificationsInAutoConfirmMode = value.showWaitingNotificationsInAutoConfirmMode;
   }
   if (typeof value.browserTabReuse === 'boolean') config.browserTabReuse = value.browserTabReuse;
+  if (SUPPORTED_LOCALES.includes(value.locale)) config.locale = value.locale;
   return config;
 }
 
@@ -102,12 +107,30 @@ function setBrowserTabReuseEnabled(enabled, configFile = DEFAULT_CONFIG_FILE) {
   return writeDisplayConfig(config, configFile);
 }
 
+function setLocale(locale, configFile = DEFAULT_CONFIG_FILE) {
+  if (!SUPPORTED_LOCALES.includes(locale)) throw new Error(`Unknown locale: ${locale}`);
+  const config = readDisplayConfig(configFile);
+  config.locale = locale;
+  return writeDisplayConfig(config, configFile);
+}
+
+function restartMonitor(run = execFileSync) {
+  run('/bin/bash', [path.join(__dirname, 'restart-agent-monitor.sh')], {
+    stdio: 'ignore',
+  });
+}
+
 if (require.main === module) {
   const [command, key, value] = process.argv.slice(2);
   try {
     if (command === 'toggle') toggleDisplayConfig(key);
     else if (command === 'set' && (value === 'true' || value === 'false')) {
       setDisplayConfig(key, value === 'true');
+    } else if (command === 'set-locale') {
+      setLocale(key);
+      restartMonitor();
+    } else if (command === 'get-locale') {
+      process.stdout.write(`${readDisplayConfig().locale}\n`);
     } else process.exitCode = 1;
   } catch {
     process.exitCode = 1;
@@ -117,6 +140,7 @@ if (require.main === module) {
 module.exports = {
   CONFIG_KEYS,
   DEFAULT_CONFIG_FILE,
+  SUPPORTED_LOCALES,
   DEFAULT_DISPLAY_CONFIG,
   normalizeDisplayConfig,
   readDisplayConfig,
@@ -125,6 +149,8 @@ module.exports = {
   setDisplayConfig,
   setNotificationPreference,
   setNotificationsEnabled,
+  setLocale,
+  restartMonitor,
   toggleDisplayConfig,
   writeDisplayConfig,
 };

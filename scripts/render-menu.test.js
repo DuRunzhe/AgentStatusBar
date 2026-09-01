@@ -201,6 +201,27 @@ test('renders web agent instances as browser links', () => {
   assert.doesNotMatch(output, /param1=387 terminal=false/);
 });
 
+test('renders language choices and marks the selected locale', () => {
+  const output = render({
+    summary: '🟢 1 ready',
+    display_config: { locale: 'zh-Hans' },
+    ui: {
+      settings: 'Settings',
+      language: 'Language',
+      languageSystem: 'Follow system',
+      languageEnglish: 'English',
+      languageSimplifiedChinese: 'Simplified Chinese',
+      languageTraditionalChinese: 'Traditional Chinese',
+      statusUnknown: 'Unknown',
+    },
+    agents: [],
+  });
+
+  assert.match(output, /--Language \\| sfimage=globe/);
+  assert.match(output, /----Simplified Chinese .*param1=set-locale param2=zh-Hans.*checked=true/);
+  assert.doesNotMatch(output, /----Follow system .*param2=system.*checked=true/);
+});
+
 test('renders browser tab reuse as an explicit setting', () => {
   const output = render({
     summary: '🟢 1 ready',

@@ -30,6 +30,7 @@ DISPLAY_CONFIG_KEYS = {
     "notifyWaitingConfirmation",
     "notifyWaitingReply",
     "showWaitingNotificationsInAutoConfirmMode",
+    "locale",
 }
 
 
@@ -89,6 +90,8 @@ def read_live_display_config(fallback):
         for key in DISPLAY_CONFIG_KEYS:
             if isinstance(value.get(key), bool):
                 config[key] = value[key]
+        if value.get("locale") in ("system", "en", "zh-Hans", "zh-Hant"):
+            config["locale"] = value["locale"]
         return config
     except (OSError, ValueError, TypeError):
         return fallback
@@ -239,6 +242,21 @@ def render_menu(data, paths, now=None, static_icon=False, icon_frame=None):
         lines.append(f"----{safe_text(browser_action)} | bash={node_cmd} param0={browser_tab_path} param1=toggle terminal=false refresh=true sfimage={browser_icon} sfcolor={browser_color}")
         lines.append(f"----{safe_text(ui.get('openAutomationSettings', 'Open Automation Settings'))} | bash={node_cmd} param0={browser_tab_path} param1=open-settings terminal=false sfimage=gearshape")
     lines.append(f"----{safe_text(ui.get('browserTabReusePermission', 'Requires browser Automation permission'))} | sfimage=lock.shield disabled=true")
+    lines.append(f"--{safe_text(ui.get('language', 'Language'))} | sfimage=globe")
+    locale_options = (
+        ("system", "languageSystem", "Follow system"),
+        ("en", "languageEnglish", "English"),
+        ("zh-Hans", "languageSimplifiedChinese", "简体中文"),
+        ("zh-Hant", "languageTraditionalChinese", "繁體中文"),
+    )
+    selected_locale = config.get("locale", "system")
+    if node_cmd:
+        for locale, label_key, fallback in locale_options:
+            checked = " checked=true" if selected_locale == locale else ""
+            lines.append(
+                f"----{safe_text(ui.get(label_key, fallback))} | bash={node_cmd} "
+                f"param0={display_path} param1=set-locale param2={locale} terminal=false refresh=true{checked}"
+            )
     lines.append(f"--{safe_text(ui.get('displayConfig', 'Display options'))} | sfimage=slider.horizontal.3")
     for key, label_key, fallback in (
         ("duration", "showDuration", "Duration"),

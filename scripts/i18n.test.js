@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const {
   detectLocale,
   getMessages,
+  getUiStrings,
   parseAppleLanguages,
   selectLocale,
 } = require('./i18n');
@@ -104,6 +105,16 @@ test('localizes every browser tab reuse menu action', () => {
   }
 });
 
+
+test('localizes the language setting menu item', () => {
+  assert.deepEqual([
+    getUiStrings('en').language,
+    getUiStrings('zh-Hans').language,
+    getUiStrings('zh-Hant').language,
+  ], ['Language', '语言', '語言']);
+  assert.equal(getUiStrings('zh-Hans').languageSystem, '跟随系统');
+  assert.equal(getUiStrings('zh-Hant').languageTraditionalChinese, '繁體中文');
+});
 
 test('localizes every notification option menu item', () => {
   const expected = {

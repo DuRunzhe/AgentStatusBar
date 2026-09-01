@@ -98,12 +98,18 @@ if (!releaseProcessLock) {
 process.on('exit', releaseProcessLock);
 
 function refreshLocale() {
-  try {
-    const locale = fs.readFileSync(LOCALE_FILE, 'utf8').trim();
-    if (!['en', 'zh-Hans', 'zh-Hant'].includes(locale) || locale === LOCALE) return;
-    LOCALE = locale;
-    TEXT = getMessages(locale);
-  } catch {}
+  const configLocale = readDisplayConfig().locale;
+  let locale = configLocale;
+  if (locale === 'system') {
+    try {
+      locale = fs.readFileSync(LOCALE_FILE, 'utf8').trim();
+    } catch {
+      locale = DEFAULT_LOCALE;
+    }
+  }
+  if (!['en', 'zh-Hans', 'zh-Hant'].includes(locale) || locale === LOCALE) return;
+  LOCALE = locale;
+  TEXT = getMessages(locale);
 }
 
 // Agent definitions

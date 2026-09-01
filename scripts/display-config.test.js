@@ -9,6 +9,8 @@ const {
   DEFAULT_DISPLAY_CONFIG,
   normalizeDisplayConfig,
   readDisplayConfig,
+  restartMonitor,
+  setLocale,
   setNotificationPreference,
   setBrowserTabReuseEnabled,
   setNotificationsEnabled,
@@ -68,6 +70,28 @@ test('notifications are disabled by default and persist independently', t => {
   assert.equal(setNotificationsEnabled(true, configFile).notifications, true);
   assert.equal(readDisplayConfig(configFile).model, true);
   assert.equal(setNotificationsEnabled(false, configFile).notifications, false);
+});
+
+test('restarts the monitor through the bundled restart script', () => {
+  const calls = [];
+  restartMonitor((command, args, options) => calls.push({ command, args, options }));
+  assert.deepEqual(calls, [{
+    command: '/bin/bash',
+    args: [path.join(__dirname, 'restart-agent-monitor.sh')],
+    options: { stdio: 'ignore' },
+  }]);
+});
+
+test('language follows the system by default and persists independently', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-statusbar-locale-config-test-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const configFile = path.join(root, 'config.json');
+
+  assert.equal(readDisplayConfig(configFile).locale, 'system');
+  assert.equal(setLocale('zh-Hans', configFile).locale, 'zh-Hans');
+  assert.equal(readDisplayConfig(configFile).locale, 'zh-Hans');
+  assert.equal(setLocale('system', configFile).locale, 'system');
+  assert.throws(() => setLocale('fr', configFile));
 });
 
 test('browser tab reuse is disabled by default and persists independently', t => {
