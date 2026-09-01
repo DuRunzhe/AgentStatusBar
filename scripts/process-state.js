@@ -48,7 +48,7 @@ function getAgentProcessNames(agentDef) {
 }
 
 function isAgentProcessName(name) {
-  return ['claude', 'codex', 'opencode', 'dsh', 'deepseek-harness'].includes(name);
+  return ['claude', 'codex', 'opencode', 'dsh', 'deepseek-harness', 'pi'].includes(name);
 }
 
 function getMatchedAgentProcessName(command, allowedNames = null) {
@@ -77,6 +77,7 @@ function getAgentNamesForDisplayName(agentName) {
   if (agentName === 'Codex') return ['codex'];
   if (agentName === 'OpenCode') return ['opencode'];
   if (agentName === 'DeepSeek Harness') return ['dsh', 'deepseek-harness'];
+  if (agentName === 'Pi') return ['pi'];
   return [];
 }
 

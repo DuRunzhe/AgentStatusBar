@@ -1,6 +1,6 @@
 # AgentStatusBar
 
-macOS 菜单栏里的 AI Coding Agent 状态监控器。通过 SwiftBar 汇总 Claude Code、Codex CLI、ChatGPT 桌面版 Codex 和 OpenCode 的运行状态、进程时长与上下文占用，并可点击菜单项跳回对应终端或 ChatGPT Codex 会话。
+macOS 菜单栏里的 AI Coding Agent 状态监控器。通过 SwiftBar 汇总 Claude Code、Codex CLI、ChatGPT 桌面版 Codex、OpenCode 和 Pi 的运行状态、进程时长与上下文占用，并可点击菜单项跳回对应终端或 ChatGPT Codex 会话。
 
 ## 显示效果
 <img width="1104" height="674" alt="image" src="https://github.com/user-attachments/assets/6f73cd65-4385-4ca7-98de-aa146894ca30" />
@@ -32,10 +32,10 @@ macOS 菜单栏里的 AI Coding Agent 状态监控器。通过 SwiftBar 汇总 C
 
 | 功能 | 说明 |
 |---|---|
-| 多 Agent / 多实例 | 同时监控 Claude Code、Codex CLI、ChatGPT 桌面版 Codex、OpenCode，并按项目区分多个会话 |
+| 多 Agent / 多实例 | 同时监控 Claude Code、Codex CLI、ChatGPT 桌面版 Codex、OpenCode、Pi，并按项目区分多个会话 |
 | 五态显示 | 等待确认、等待回复、进行中、就绪、已停止 |
 | 多语言 | 按 macOS 首选语言显示英语、简体中文或繁体中文；语言优先于地区，默认英语 |
-| 上下文占用 | Claude Code、Codex 和 OpenCode 显示百分比及 `已用/窗口` token 数 |
+| 上下文占用 | Claude Code、Codex 和 OpenCode 显示百分比及 `已用/窗口` token 数；Pi 显示会话模型 |
 | 会话模型 | 在 Agent 实例行显示当前会话最新使用的模型名称 |
 | 显示配置 | 在菜单中独立开关已停止 Agent、时长、模型、上下文占比、已用上下文和总上下文 |
 | 工具调用配对 | 按 tool ID 配对 `tool_use` 与 `tool_result`，避免并行调用和扫描窗口截断误判 |
@@ -175,6 +175,7 @@ macOS 没有向普通脚本提供稳定的通知权限查询接口，因此开�
 - **ChatGPT 桌面版 Codex**：识别 ChatGPT/Codex 应用内的 `codex app-server`，读取其直接打开的 primary rollout；单个 app-server 同时承载多个 thread 时按 rollout 分成多个实例。会话的 cwd、thread ID、模型、上下文和任务状态均来自相同的 Codex rollout 格式。
 - **OpenCode**：检测 `opencode` 进程，并优先从 `~/.local/share/opencode/opencode.db` 的当前目录最新会话读取状态、provider/model 和已用 token；上下文窗口来自 `~/.cache/opencode/models.json`，旧版 `storage/*` 保留为模型读取回退。
 - **DeepSeek Harness**：检测交互式 `dsh` / `deepseek-harness` CLI 进程，按 cwd 区分多个 `dsh chat` 会话，并通过实际后代进程判断是否正在执行本地任务；MCP server 和 Claude Skill 形态由宿主客户端承载，不作为独立会话重复显示。
+- **Pi**：检测 `pi` 进程，按 cwd 映射到 `~/.pi/agent/sessions/` 中最新的持久化 JSONL 会话；通过未配对的 `toolCall` / `toolResult` 和 assistant 回合结束状态判定进行中或就绪，并显示 `provider/model`。临时（`--no-session`）会话没有 JSONL 文件时仍显示进程状态，但不显示模型。
 - **进程发现**：SwiftBar 后台采集器写入 agent 主进程及全部后代进程，并在 2 秒快照中保留 TTY；PID 到 cwd/session 的 `lsof` 元数据采用新 PID 快速解析、稳定 PID 周期复核的异步策略，不阻塞状态轮询。
 
 ## 状态判定
@@ -200,6 +201,7 @@ macOS 没有向普通脚本提供稳定的通知权限查询接口，因此开�
 ps ──> 精简 Agent/全部后代进程快照（2 秒）──────────────────────────┐
 lsof ──> 新 PID 快速解析、稳定 PID 30 秒批量复核（异步）────────────┤
 Claude sessions/statusline/transcript ──────────────────────────────┤
+Pi sessions JSONL ──────────────────────────────────────────────────┤
 Codex CLI rollout ──> 按需异步探测目标 Terminal TTY 确认界面 ───────┤
 ChatGPT codex app-server ──> 多 primary rollout / thread 深链接 ─────┤
 OpenCode SQLite/model catalog ───────────────────────────────────────┤
@@ -239,13 +241,13 @@ SwiftBar 通过唯一稳定入口 `scripts/agent-monitor.sh` 每秒刷新一次�
 | 守护进程状态判断 | 每 2 秒一次 | 独立进程 |
 | SwiftBar 菜单输出 | 每秒选择已有缓存帧 | 是，但只读取小文件 |
 
-`write-process-snapshot.sh` 使用一次 `ps -axo pid,ppid,etime,tty,command` 获取全量进程表，再由 `awk` 找出 Claude、Codex、OpenCode、DeepSeek Harness 主进程及其全部后代进程。快照保留 PID、PPID、进程寿命、TTY 和完整命令，供任务子进程判断及终端跳转使用。根 PID 列表只有内容变化时才替换，因此文件 inode 可以作为新建或退出会话的稳定变化键。
+`write-process-snapshot.sh` 使用一次 `ps -axo pid,ppid,etime,tty,command` 获取全量进程表，再由 `awk` 找出 Claude、Codex、OpenCode、DeepSeek Harness、Pi 主进程及其全部后代进程。快照保留 PID、PPID、进程寿命、TTY 和完整命令，供任务子进程判断及终端跳转使用。根 PID 列表只有内容变化时才替换，因此文件 inode 可以作为新建或退出会话的稳定变化键。
 
-Codex CLI、ChatGPT、OpenCode 和 DeepSeek Harness 的 cwd/session 元数据由 `write-process-metadata.sh` 自适应采集：
+Codex CLI、ChatGPT、OpenCode、DeepSeek Harness 和 Pi 的 cwd/session 元数据由 `write-process-metadata.sh` 自适应采集：
 
 - 根 PID inode 与上次已处理值不一致时立即运行，不依赖秒级 mtime，避免新会话与上次刷新恰好发生在同一秒时延迟 30 秒。
 - 需要解析的多个 PID 合并成一次 `lsof -Fn -p pid1,pid2,...`，避免逐 PID 启动 `lsof`。
-- Codex 映射只有同时获得有效 cwd 和仍存在的 rollout 文件才视为成功；ChatGPT app-server 的进程 cwd 通常为 `/`，实际项目 cwd 改从每个 rollout 的 `session_meta` 读取；OpenCode 和 DeepSeek Harness 获得有效 cwd 即可。
+- Codex 映射只有同时获得有效 cwd 和仍存在的 rollout 文件才视为成功；ChatGPT app-server 的进程 cwd 通常为 `/`，实际项目 cwd 改从每个 rollout 的 `session_meta` 读取；OpenCode、DeepSeek Harness 和 Pi 获得有效 cwd 即可。
 - 新 PID 尚未生成 rollout 时写入 retry 标记，入口脚本每 2 秒重试；解析成功后删除标记。
 - `lsof` 暂时失败时保留最后一次有效映射，但稳定 PID 仍会在 30 秒后重新验证，因此这不是永久缓存。
 - 已退出 PID 不再写入新的 metadata/state 文件，会随下一轮采集自然清除。
@@ -259,6 +261,7 @@ Codex CLI、ChatGPT、OpenCode 和 DeepSeek Harness 的 cwd/session 元数据由
 - Claude 使用原生 session 状态、statusline 和 transcript，PID/session/cwd 不依赖周期 `lsof`。
 - Codex CLI 将 PID 与最新 primary rollout 配对；ChatGPT app-server 会与其打开的全部 primary rollout 配对，并按 thread 拆分实例。两者都按事件 ID 匹配工具调用和结果，并累计 `task_started`、`task_complete`、模型及 token 使用情况。
 - OpenCode 按 cwd 查询 SQLite 中最新会话和消息，模型上下文窗口来自本地模型目录；数据库及模型文件签名未变化时复用查询结果。
+- Pi 按 cwd 查找 `~/.pi/agent/sessions/` 下项目的最新 JSONL 会话，读取末尾事件以配对 `toolCall` / `toolResult`，并从 assistant 消息读取 provider/model；无持久化会话时保留进程级状态。
 - Codex/Claude transcript 使用文件 mtime、大小和上次读取偏移量增量解析，只处理追加事件；文件截断或替换时才重新完整解析。
 
 状态使用“明确的人机交互信号优先于进程活跃信号”的统一优先级：结构化用户输入请求和显式确认请求优先，其次是原生状态、实际任务子进程、未完成工具调用和 transcript 生命周期，最后才使用最近文件活动时间兜底。这样长时间运行的普通命令不会仅因耗时被误判为等待确认。

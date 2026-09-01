@@ -16,7 +16,7 @@ if /bin/ps -axo pid=,ppid=,etime=,tty=,command= \
         for (i = 5; i <= NF && i <= 8; i++) {
           name = basename($i)
           if (name == "claude" || name == "codex" || name == "opencode" ||
-              name == "dsh" || name == "deepseek-harness") {
+              name == "dsh" || name == "deepseek-harness" || name == "pi") {
             return name
           }
         }
@@ -54,7 +54,7 @@ if /bin/ps -axo pid=,ppid=,etime=,tty=,command= \
       for (i = 5; i <= NF && i <= 8; i++) {
         name = basename($i)
         if (name == "claude" || name == "codex" || name == "opencode" ||
-            name == "dsh" || name == "deepseek-harness") {
+            name == "dsh" || name == "deepseek-harness" || name == "pi") {
           return name
         }
       }

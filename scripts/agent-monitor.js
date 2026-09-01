@@ -42,6 +42,7 @@ const {
   pruneOpenCodeRuntimeCache,
 } = require('./opencode-state');
 const { getDeepSeekRuntimeForCwd } = require('./deepseek-state');
+const { getPiRuntimeForCwd } = require('./pi-state');
 const {
   selectCodexSessionFile,
   selectCodexSessions,
@@ -139,6 +140,12 @@ const AGENTS = [
     processNames: ['dsh', 'deepseek-harness'],
     sessionDir: null,
     sessionGlob: null,
+  },
+  {
+    name: 'Pi',
+    process: 'pi',
+    sessionDir: path.join(process.env.HOME, '.pi', 'agent', 'sessions'),
+    sessionGlob: '**/*.jsonl',
   },
 ];
 
@@ -410,6 +417,12 @@ function getSessionRefsForPid(pid, agentDef, processes = []) {
         f.includes(path.sep + 'storage' + path.sep) &&
         f.includes(path.sep + 'opencode' + path.sep)
       ) || null;
+      if (sessionFile) PID_SESSION_CACHE.set(cacheKey, sessionFile);
+      return sessionFile ? [{ sessionFile, metadata: null }] : [];
+    }
+    if (agentDef.name === 'Pi') {
+      const cwd = processMetadata.get(pid)?.cwd || null;
+      const sessionFile = getPiRuntimeForCwd(cwd, { sessionDir: agentDef.sessionDir }).sessionFile;
       if (sessionFile) PID_SESSION_CACHE.set(cacheKey, sessionFile);
       return sessionFile ? [{ sessionFile, metadata: null }] : [];
     }
@@ -778,10 +791,14 @@ function getInstances(
     const deepSeekRuntime = agentDef.name === 'DeepSeek Harness'
       ? getDeepSeekRuntimeForCwd(cwd)
       : null;
+    const piRuntime = agentDef.name === 'Pi'
+      ? getPiRuntimeForCwd(cwd, { sessionDir: agentDef.sessionDir, sessionFile: group.sessionFile })
+      : null;
     if (deepSeekRuntime?.sessionFile) cacheUsage?.sessionFiles.add(deepSeekRuntime.sessionFile);
+    if (piRuntime?.sessionFile) cacheUsage?.sessionFiles.add(piRuntime.sessionFile);
     const nativeState = agentDef.name === 'Claude'
       ? getClaudeNativeState(claudeRuntime)
-      : openCodeRuntime?.state || deepSeekRuntime?.state || null;
+      : openCodeRuntime?.state || deepSeekRuntime?.state || piRuntime?.state || null;
     const analysisAgentName = agentDef.kind?.startsWith('codex') ? 'Codex' : agentDef.name;
     let sessionAnalysis = analysisAgentName === 'Claude' || analysisAgentName === 'Codex'
       ? analyzeSessionFile(group.sessionFile, analysisAgentName)
@@ -843,8 +860,11 @@ function getInstances(
       contextUsage = deepSeekRuntime?.contextUsage || null;
       model = deepSeekRuntime?.model || null;
       openUrl = getDeepSeekHarnessWebUrl(firstPid, agentDef, processes);
+    } else if (agentDef.name === 'Pi') {
+      model = piRuntime?.model || null;
+      contextUsage = piRuntime?.contextUsage || null;
     }
-    const runtimeActivityMs = openCodeRuntime?.lastActivityMs || deepSeekRuntime?.lastActivityMs || null;
+    const runtimeActivityMs = openCodeRuntime?.lastActivityMs || deepSeekRuntime?.lastActivityMs || piRuntime?.lastActivityMs || null;
     const sessionStartedAtMs = Date.parse(group.sessionMetadata?.timestamp || '');
     const uptimeSec = agentDef.kind === 'codex-desktop' && Number.isFinite(sessionStartedAtMs)
       ? Math.min(pidAge, Math.max(0, Math.floor((now - sessionStartedAtMs) / 1000)))

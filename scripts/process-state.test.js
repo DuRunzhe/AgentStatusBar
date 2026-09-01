@@ -34,10 +34,18 @@ test('extracts agent names from node-launched CLI scripts', () => {
   );
 });
 
-test('recognizes DeepSeek Harness process names as tracked agents', () => {
+test('recognizes DeepSeek Harness and Pi process names as tracked agents', () => {
   assert.equal(isAgentProcessName('dsh'), true);
   assert.equal(isAgentProcessName('deepseek-harness'), true);
+  assert.equal(isAgentProcessName('pi'), true);
   assert.equal(isAgentProcessName('python'), false);
+});
+
+test('detects Pi launched through a Node wrapper', () => {
+  assert.equal(
+    getMatchedAgentProcessName('/opt/homebrew/bin/node /opt/homebrew/bin/pi', ['pi']),
+    'pi'
+  );
 });
 
 test('detects wrapped agent children that share the same agent name', () => {

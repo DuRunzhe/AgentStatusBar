@@ -35,7 +35,7 @@ printf 'roots\t%s\n' "$(stat -f '%i' "$TRACKED_ROOTS_FILE" 2>/dev/null || echo 0
     for (i = 5; i <= NF && i <= 8; i++) {
       name = basename($i)
       if (name == "codex" || name == "opencode" ||
-          name == "dsh" || name == "deepseek-harness") {
+          name == "dsh" || name == "deepseek-harness" || name == "pi") {
         return name
       }
     }
@@ -86,7 +86,7 @@ cache_is_valid() {
   cwd=$(/usr/bin/awk -F '\t' -v pid="$pid" '$1 == pid && $2 == "cwd" { print $3; exit }' "$OUTPUT_FILE" 2>/dev/null)
   [ -n "$cwd" ] && [ -d "$cwd" ] || return 1
   case "$name" in
-    opencode|dsh|deepseek-harness) return 0 ;;
+    opencode|dsh|deepseek-harness|pi) return 0 ;;
   esac
   while IFS= read -r file; do
     [ -f "$file" ] && return 0
@@ -137,7 +137,7 @@ if [ -n "$PID_LIST" ]; then
     new_file=$(/usr/bin/awk -F '\t' -v pid="$pid" '$1 == pid && $2 == "file" { print $3; exit }' "$PROBE_OUTPUT")
     new_valid=false
     if [ -n "$new_cwd" ] && [ -d "$new_cwd" ]; then
-      if [ "$name" = "opencode" ] || [ "$name" = "dsh" ] || [ "$name" = "deepseek-harness" ] ||
+      if [ "$name" = "opencode" ] || [ "$name" = "dsh" ] || [ "$name" = "deepseek-harness" ] || [ "$name" = "pi" ] ||
           { [ -n "$new_file" ] && [ -f "$new_file" ]; } ||
           { [ "$name" = "codex" ] && codex_descendant_has_session "$pid" "$PROBE_OUTPUT"; }; then
         new_valid=true
